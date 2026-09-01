@@ -601,6 +601,43 @@ export interface LBPlaybackProgress {
   isPlaying: boolean;
   /** LIVE stream scrubbed behind the live edge (`liveStatus === 1` only). */
   isReplay: boolean;
+  /**
+   * vod-narrating-products-core-rn — products whose replay narration window
+   * `[beginTime, endTime)` (seconds, begin inclusive / end exclusive) contains
+   * this SAME snapshot's `position`. Products missing `beginTime`/`endTime`
+   * are excluded. May contain multiple entries when windows overlap; ordered
+   * by `beginTime` ascending. Computed UNCONDITIONALLY (not gated on
+   * `liveStatus`) — mirrors iOS `LBPlaybackProgress.vodActiveProducts` /
+   * Android `LBPlaybackProgress.vodActiveProducts`
+   * (component-contracts §Player VOD playback-progress 頻道與控制出口 /
+   * §Player（RN）VOD playback-progress 頻道與控制出口 — core bridge parity).
+   * Default `[]`.
+   */
+  vodActiveProducts: LBProduct[];
+}
+
+/**
+ * vod-narrating-products-core-rn — pure filter mirroring iOS
+ * `LivebuyPlayerViewController.vodActiveProducts(products:position:)` /
+ * Android `LivebuyPlayerView.vodActiveProducts(products:position:)`:
+ * products whose `[beginTime, endTime)` window (seconds, begin inclusive /
+ * end exclusive) contains `position`. Products missing `beginTime`/`endTime`
+ * are excluded. May return multiple entries (overlapping windows); ordered by
+ * `beginTime` ascending — `Array#sort` has been spec-guaranteed stable since
+ * ES2019, matching Swift's `sorted(by:)` / Kotlin's `sortedBy` stability.
+ *
+ * Exported for testing and reused by `mapPlaybackProgress` below — a genuine
+ * JS-side computation (not a passthrough of a native-computed value), so
+ * this repo's own test suite exercises the boundary/overlap/sort semantics
+ * directly (same rationale as `vodScrubAllowed` in `LivebuyPlayer.tsx`).
+ */
+export function vodActiveProducts(products: LBProduct[], position: number): LBProduct[] {
+  return products
+    .filter(
+      (p): p is LBProduct & { beginTime: number; endTime: number } =>
+        p.beginTime != null && p.endTime != null && p.beginTime <= position && position < p.endTime,
+    )
+    .sort((a, b) => a.beginTime - b.beginTime);
 }
 
 /**
@@ -618,18 +655,29 @@ export interface LBPlaybackProgress {
  * `position` / `duration`: missing, non-finite, or negative → sanitized to `0`
  * (mirrors iOS/Android core's own NaN-sanitize contract). `isPlaying` /
  * `isReplay`: missing/null → `false`.
+ *
+ * vod-narrating-products-core-rn: `products` — the raw, UNFILTERED products
+ * snapshot the native bridge forwards alongside the rest of this event
+ * (`channel.goods`, the same source iOS/Android core's own
+ * `vodActiveProducts(products:position:)` reads) — missing/`null` → `[]`
+ * (backward compatible with an older native binary that doesn't yet send
+ * this key). Fed, together with this SAME call's sanitized `position`, into
+ * {@link vodActiveProducts} to produce the `vodActiveProducts` field.
  */
 export function mapPlaybackProgress(wire: {
   position?: number | null;
   duration?: number | null;
   isPlaying?: boolean | null;
   isReplay?: boolean | null;
+  products?: LBProduct[] | null;
 }): LBPlaybackProgress {
+  const position = sanitizeNonNegativeFinite(wire.position);
   return {
-    position: sanitizeNonNegativeFinite(wire.position),
+    position,
     duration: sanitizeNonNegativeFinite(wire.duration),
     isPlaying: wire.isPlaying ?? false,
     isReplay: wire.isReplay ?? false,
+    vodActiveProducts: vodActiveProducts(wire.products ?? [], position),
   };
 }
 

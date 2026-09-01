@@ -750,14 +750,16 @@ final class LivebuyRNBridge: RCTEventEmitter {
         sendEvent(withName: "LBPlayerStateChange", body: raw)
     }
 
-    func emitProductTap(_ product: LBProduct) {
-        // product-bridge-data-core: full 23-field projection (camelCase wire
-        // keys). `price` / `originalPrice` carried as String per §price 精度
-        // (RN host self-parses). `originalPrice == nil` → NSNull (JS `null`).
-        // add-product-video-id-core-rn: `videoId` (24th field) is OMITTED from
-        // `body` entirely when nil (main `goods[]` items) rather than sent as
-        // NSNull — JS sees `videoId` as optional/`undefined`, not nullable, per
-        // component-contracts §"other_goods 含 video_id 欄位" 落地現況(RN).
+    /// Serialize a full `LBProduct` to a camelCase bridge map (product-bridge-data-core's
+    /// 23-field projection). Extracted from `emitProductTap` (vod-narrating-products-core-rn)
+    /// so the new `vodActiveProducts` filtering input — the raw products snapshot forwarded
+    /// alongside `LBPlaybackProgressChange` — reuses the SAME wire shape instead of drifting.
+    /// `price` / `originalPrice` carried as String per §price 精度 (RN host self-parses).
+    /// `originalPrice == nil` → NSNull (JS `null`). add-product-video-id-core-rn: `videoId`
+    /// (24th field) is OMITTED from the body entirely when nil (main `goods[]` items) rather
+    /// than sent as NSNull — JS sees `videoId` as optional/`undefined`, not nullable, per
+    /// component-contracts §"other_goods 含 video_id 欄位" 落地現況(RN).
+    private func lbProductToBody(_ product: LBProduct) -> [String: Any] {
         var body: [String: Any] = [
             "id": product.id,
             "goodsNo": product.goodsNo,
@@ -796,7 +798,11 @@ final class LivebuyRNBridge: RCTEventEmitter {
         body["beginTime"] = product.beginTime.map { $0 as Any } ?? NSNull()
         body["endTime"] = product.endTime.map { $0 as Any } ?? NSNull()
         if let videoId = product.videoId { body["videoId"] = videoId }
-        sendEvent(withName: "LBProductTap", body: body)
+        return body
+    }
+
+    func emitProductTap(_ product: LBProduct) {
+        sendEvent(withName: "LBProductTap", body: lbProductToBody(product))
     }
 
     /// Serialize an `LBSpec` to a camelCase bridge map (price as String,
@@ -864,12 +870,23 @@ final class LivebuyRNBridge: RCTEventEmitter {
     // SDK-internal value type (never decoded from API JSON), so the wire is
     // sent CAMELCASE directly — mirrors `emitPollReceived`'s style, not
     // `emitChannelChange`'s snake_case + mapper style.
-    func emitPlaybackProgressChange(_ progress: LBPlaybackProgress) {
+    //
+    // vod-narrating-products-core-rn: `products` is a NEW additive wire key —
+    // the raw, UNFILTERED products snapshot (`channel.goods`, read by the
+    // caller at the moment of forward — see `onPlaybackProgressChange` wiring
+    // below). RN JS computes its own `vodActiveProducts(products, position)`
+    // pure filter from this (mirrors iOS/Android core's own algorithm rather
+    // than trusting a second copy of it over the wire). No new native
+    // computation is introduced here — this is pure wire-forwarding of
+    // already-resident state, reusing `lbProductToBody` (the SAME wire shape
+    // `LBProductTap` already uses).
+    func emitPlaybackProgressChange(_ progress: LBPlaybackProgress, products: [LBProduct]) {
         sendEvent(withName: "LBPlaybackProgressChange", body: [
             "position": progress.position,
             "duration": progress.duration,
             "isPlaying": progress.isPlaying,
             "isReplay": progress.isReplay,
+            "products": products.map { lbProductToBody($0) },
         ])
     }
 
@@ -1060,8 +1077,15 @@ final class LivebuyPlayerRNView: UIView {
             // ALIGNED; not compiled here). Mirrors the other VC callbacks;
             // `Player.onPlaybackProgressChange` already exists on core (VOD-1,
             // archive/2026-06-08-vod-playback-progress-core).
-            vc.onPlaybackProgressChange = { [weak self] progress in
-                LivebuyRNBridge.shared?.emitPlaybackProgressChange(progress)
+            //
+            // vod-narrating-products-core-rn: also weakly capture `vc` to read
+            // `vc.channel?.goods` — the raw, unfiltered products snapshot
+            // forwarded as the NEW `products` wire key (see
+            // `emitPlaybackProgressChange` above). Same source
+            // `productOverlayView.products` iOS core's own
+            // `vodActiveProducts(products:position:)` reads.
+            vc.onPlaybackProgressChange = { [weak self, weak vc] progress in
+                LivebuyRNBridge.shared?.emitPlaybackProgressChange(progress, products: vc?.channel?.goods ?? [])
             }
             playerVC = vc
             addSubview(vc.view)

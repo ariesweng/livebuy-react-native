@@ -323,7 +323,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun openInAppBrowser(url: String) {
         if (url.isBlank()) return
-        val activity = currentActivity ?: return
+        val activity = reactContext.currentActivity ?: return
         try {
             CustomTabsIntent.Builder().build().launchUrl(activity, Uri.parse(url))
         } catch (e: Exception) {
@@ -886,61 +886,70 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         emit("LBPlayerStateChange", raw)
     }
 
+    // Serialize a full `LBProduct` to a camelCase bridge map (product-bridge-data-core's
+    // 23-field projection). Extracted from `emitProductTap` (vod-narrating-products-core-rn)
+    // so the new `vodActiveProducts` filtering input — the raw products snapshot forwarded
+    // alongside `LBPlaybackProgressChange` — reuses the SAME wire shape instead of drifting.
+    // `price` / `originalPrice` carried as String per §price 精度 (RN host self-parses).
+    // originalPrice == null → JS `null`. add-product-video-id-core-rn: `videoId` (24th field)
+    // — no `putNull` fallback; the key is OMITTED entirely when null (main `goods[]` items),
+    // so JS sees `videoId` as optional/`undefined`, not nullable.
+    private fun productToMap(product: LBProduct): WritableNativeMap = WritableNativeMap().apply {
+        // `id` is String on the Android side (core LBProduct.id: String, cross-
+        // platform parity) — emit it directly, matching iOS / Flutter
+        // (rn-android-bridge-drift-fix-core; dropped the now-redundant .toString()).
+        putString("id", product.id)
+        putString("goodsNo", product.goodsNo)
+        // goodsGpn is String per spec §schema risks (was Int Gson-decoded;
+        // now String — see android/.../LBModels.kt LBProduct).
+        putString("goodsGpn", product.goodsGpn)
+        putString("name", product.name)
+        putString("price", product.price.toString())
+        putString("priceShow", product.priceShow)
+        if (product.originalPrice != null) putString("originalPrice", product.originalPrice.toString())
+        else putNull("originalPrice")
+        putString("originalPriceShow", product.originalPriceShow)
+        putInt("stock", product.stock)
+        putString("pic", product.pic)
+        putArray("photos", stringArray(product.photos))
+        putString("brief", product.brief)
+        // add-product-description-core-rn: `description` — parallel to, distinct from,
+        // `brief`. Tolerant decode already happened upstream in iOS/Android core; this
+        // bridge point always has a non-null String (possibly "") to serialize, unlike
+        // `videoId` which can be genuinely absent.
+        putString("description", product.description)
+        putInt("soldOut", product.soldOut)
+        putInt("isHot", product.isHot)
+        putInt("isOutSoon", product.isOutSoon)
+        putInt("narrateStatus", product.narrateStatus)
+        // Backend goods conclusion fields (goods-conclusion-fields spec; native
+        // LBProduct has these as defaulted props, 1f5c730).
+        putBoolean("canView", product.canView)
+        putBoolean("canBuy", product.canBuy)
+        putBoolean("isNarrating", product.isNarrating)
+        putBoolean("needLabel", product.needLabel)
+        putString("label", product.label)
+        putInt("isAwait", product.isAwait)
+        putInt("isAwaitNotice", product.isAwaitNotice)
+        // beginTime / endTime are cross-module nullable properties (core LBProduct,
+        // Int?) — Kotlin can't smart-cast them, so use ?.let / ?: (idiomatic,
+        // wire-identical to the old if/else; rn-android-bridge-drift-fix-core).
+        product.beginTime?.let { putInt("beginTime", it) } ?: putNull("beginTime")
+        product.endTime?.let { putInt("endTime", it) } ?: putNull("endTime")
+        putString("diversionUrl", product.diversionUrl)
+        putArray("specifications", specArray(product.specifications))
+        putArray("specOptions", specOptionArray(product.specOptions))
+        product.videoId?.let { putString("videoId", it) }
+    }
+
+    // vod-narrating-products-core-rn: array-of-products serialization, reused by
+    // `emitPlaybackProgressChange`'s new `products` wire key. Mirrors the existing
+    // `specArray`/`specOptionArray` helper pattern below.
+    private fun productsArray(products: List<LBProduct>): WritableNativeArray =
+        WritableNativeArray().apply { products.forEach { pushMap(productToMap(it)) } }
+
     fun emitProductTap(product: LBProduct) {
-        // product-bridge-data-core: full 23-field projection (camelCase wire
-        // keys). `price` / `originalPrice` carried as String per §price 精度
-        // (RN host self-parses). originalPrice == null → JS `null`.
-        // add-product-video-id-core-rn: `videoId` (24th field) — no `putNull`
-        // fallback; the key is OMITTED entirely when null (main `goods[]`
-        // items), so JS sees `videoId` as optional/`undefined`, not nullable.
-        val map = WritableNativeMap().apply {
-            // `id` is String on the Android side (core LBProduct.id: String, cross-
-            // platform parity) — emit it directly, matching iOS / Flutter
-            // (rn-android-bridge-drift-fix-core; dropped the now-redundant .toString()).
-            putString("id", product.id)
-            putString("goodsNo", product.goodsNo)
-            // goodsGpn is String per spec §schema risks (was Int Gson-decoded;
-            // now String — see android/.../LBModels.kt LBProduct).
-            putString("goodsGpn", product.goodsGpn)
-            putString("name", product.name)
-            putString("price", product.price.toString())
-            putString("priceShow", product.priceShow)
-            if (product.originalPrice != null) putString("originalPrice", product.originalPrice.toString())
-            else putNull("originalPrice")
-            putString("originalPriceShow", product.originalPriceShow)
-            putInt("stock", product.stock)
-            putString("pic", product.pic)
-            putArray("photos", stringArray(product.photos))
-            putString("brief", product.brief)
-            // add-product-description-core-rn: `description` — parallel to, distinct from,
-            // `brief`. Tolerant decode already happened upstream in iOS/Android core; this
-            // bridge point always has a non-null String (possibly "") to serialize, unlike
-            // `videoId` which can be genuinely absent.
-            putString("description", product.description)
-            putInt("soldOut", product.soldOut)
-            putInt("isHot", product.isHot)
-            putInt("isOutSoon", product.isOutSoon)
-            putInt("narrateStatus", product.narrateStatus)
-            // Backend goods conclusion fields (goods-conclusion-fields spec; native
-            // LBProduct has these as defaulted props, 1f5c730).
-            putBoolean("canView", product.canView)
-            putBoolean("canBuy", product.canBuy)
-            putBoolean("isNarrating", product.isNarrating)
-            putBoolean("needLabel", product.needLabel)
-            putString("label", product.label)
-            putInt("isAwait", product.isAwait)
-            putInt("isAwaitNotice", product.isAwaitNotice)
-            // beginTime / endTime are cross-module nullable properties (core LBProduct,
-            // Int?) — Kotlin can't smart-cast them, so use ?.let / ?: (idiomatic,
-            // wire-identical to the old if/else; rn-android-bridge-drift-fix-core).
-            product.beginTime?.let { putInt("beginTime", it) } ?: putNull("beginTime")
-            product.endTime?.let { putInt("endTime", it) } ?: putNull("endTime")
-            putString("diversionUrl", product.diversionUrl)
-            putArray("specifications", specArray(product.specifications))
-            putArray("specOptions", specOptionArray(product.specOptions))
-            product.videoId?.let { putString("videoId", it) }
-        }
-        emit("LBProductTap", map)
+        emit("LBProductTap", productToMap(product))
     }
 
     private fun stringArray(items: List<String>): WritableNativeArray =
@@ -1025,12 +1034,25 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
     // repo). `LBPlaybackProgress` is an SDK-internal value type (never decoded
     // from API JSON), so the wire is sent CAMELCASE directly — mirrors
     // `emitPollReceived`'s style, not `emitChannelChange`'s snake_case style.
-    fun emitPlaybackProgressChange(progress: LBPlaybackProgress) {
+    //
+    // vod-narrating-products-core-rn: `products` is a NEW additive wire key —
+    // the raw, UNFILTERED products snapshot (`channel.goods`, read by the
+    // caller at the moment of forward — see `LivebuyPlayerViewManager.kt`'s
+    // `onPlaybackProgressChange` wiring). RN JS computes its own
+    // `vodActiveProducts(products, position)` pure filter from this (mirrors
+    // iOS/Android core's own algorithm rather than trusting a second copy of
+    // it over the wire). No new native computation is introduced here — this
+    // is pure wire-forwarding of already-resident state, reusing
+    // `productToMap`/`productsArray` (the SAME wire shape `LBProductTap`
+    // already uses). Defaulted to `emptyList()` so any other (unknown) call
+    // site keeps compiling.
+    fun emitPlaybackProgressChange(progress: LBPlaybackProgress, products: List<LBProduct> = emptyList()) {
         val map = WritableNativeMap().apply {
             putDouble("position", progress.position)
             putDouble("duration", progress.duration)
             putBoolean("isPlaying", progress.isPlaying)
             putBoolean("isReplay", progress.isReplay)
+            putArray("products", productsArray(products))
         }
         emit("LBPlaybackProgressChange", map)
     }

@@ -2,15 +2,15 @@ import Foundation
 import React
 import LivebuySDK
 
-// MARK: - LivebuyWidgetRNView — UIView wrapping LivebuyWidget
+// MARK: - LivebuyWidgetRNView — UIView wrapping LivebuyWidgetCore
 
 final class LivebuyWidgetRNView: UIView {
 
-    private(set) var widget: LivebuyWidget?
+    private(set) var widget: LivebuyWidgetCore?
 
     func configure(shopId: String) {
         if widget == nil {
-            let w = LivebuyWidget(shopId: shopId, mode: .carousel)
+            let w = LivebuyWidgetCore(shopId: shopId, mode: .carousel)
             widget = w
             addSubview(w)
             w.translatesAutoresizingMaskIntoConstraints = false
@@ -21,9 +21,15 @@ final class LivebuyWidgetRNView: UIView {
                 w.bottomAnchor.constraint(equalTo: bottomAnchor),
             ])
             // widget-bridge-color-core / widget-product-card-bridge-rn
-            // (HAND-ALIGNED — this file does NOT compile in this repo; verified by
-            // RN jest/typecheck per design.md §驗證策略). After the carousel/grid
-            // `POST /sdk/widget` fetch the core widget view retains `widgetColor`
+            // (This file is not linked against a real LivebuySDK inside this
+            // monorepo — no Podfile here resolves the dependency — so it is not
+            // compiled by `npm run typecheck` / `npm test`, which only cover the
+            // TypeScript/Jest layer and cannot catch native Swift breakage. Type
+            // references here must be checked by hand against the current core
+            // SDK, or via an ad hoc real `swiftc` compile — see
+            // fix-rn-bridge-widget-core-rename-nullability/design.md). After the
+            // carousel/grid `POST /sdk/widget` fetch the core widget view retains
+            // `widgetColor`
             // (Int) / `widgetBgcolor` (String?) / `productCard` (String?) as
             // read-only host state. Bridge them to JS as a snake_case
             // `LBWidgetResponse` event so `<LivebuyWidget onWidgetResponse>` can map
@@ -36,8 +42,8 @@ final class LivebuyWidgetRNView: UIView {
         }
     }
 
-    /// HAND-ALIGNED (non-compiling): emit the retained widget root settings to JS via
-    /// the singleton RCTEventEmitter as `LBWidgetResponse`. snake_case wire keys; the
+    /// Emits the retained widget root settings to JS via the singleton
+    /// RCTEventEmitter as `LBWidgetResponse`. snake_case wire keys; the
     /// floating widget never reaches here (carousel/grid only).
     ///
     /// widget-product-card-bridge-rn — `product_card` follows the same three-state

@@ -148,7 +148,15 @@ internal class LivebuyPlayerViewManager(
         // is pure event forwarding, mirroring `onChannelRefresh` above.
         // NOTE: `togglePlayPause`/`seekBy` commands are intentionally NOT
         // wired below (`receiveCommand`) — core has no such methods yet.
-        view.onPlaybackProgressChange = { progress -> module?.emitPlaybackProgressChange(progress) }
+        //
+        // vod-narrating-products-core-rn: also forward `view.channel?.goods`
+        // — the raw, unfiltered products snapshot — as the NEW `products`
+        // wire key (see `LivebuyRNModule.emitPlaybackProgressChange`). Same
+        // source `productOverlayView.products` Android core's own
+        // `vodActiveProducts(products:position:)` reads.
+        view.onPlaybackProgressChange = { progress ->
+            module?.emitPlaybackProgressChange(progress, view.channel?.goods ?: emptyList())
+        }
 
         // rb-react-native-subtitle-channel-info-bridge-core — seed the dedupe map so
         // `onMomentStateChange`'s lookup above never index-misses (Kotlin `Map` `get`
@@ -282,7 +290,7 @@ internal class LivebuyPlayerViewManager(
 
     override fun receiveCommand(view: LivebuyPlayerView, commandId: String, args: ReadableArray?) {
         when (commandId) {
-            "load"      -> view.load(args!!.getString(0))
+            "load"      -> { val videoId = args!!.getString(0) ?: return; view.load(videoId) }
             // `release` is the legacy command name from the pre-headless API.
             // headless SDK renamed it to `unload`; we keep `release` as an
             // alias so the existing useEffect-cleanup path in LivebuyPlayer.tsx
@@ -315,7 +323,7 @@ internal class LivebuyPlayerViewManager(
             "sendChat"  -> {
                 // Optional eventId (for event-begin chat replies — spec
                 // §LBPushMsg event 欄位 + sendChat extension).
-                val message = args!!.getString(0)
+                val message = args!!.getString(0) ?: ""
                 val eventId = if (args.size() >= 2 && args.getType(1) == com.facebook.react.bridge.ReadableType.Number) {
                     args.getInt(1)
                 } else null
@@ -331,7 +339,7 @@ internal class LivebuyPlayerViewManager(
             "cancelAutoNext"   -> view.cancelAutoNext()
             "requestEventJoin" -> view.requestEventJoin(
                 args!!.getInt(0),
-                args.getString(1)
+                args.getString(1) ?: ""
             )
             // view-cart-event-rn-core: 查看購物車 CTA → core seam (emit VIEW_CART).
             // Optional productId（詳情頁帶、列表底部省略 → null → native 省略 product_id key）。
