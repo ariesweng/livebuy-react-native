@@ -25,7 +25,7 @@ npm's standard `git` dependency syntax — point at this repo and a release tag:
 ```json
 {
   "dependencies": {
-    "livebuy-react-native": "git+https://github.com/ariesweng/livebuy-react-native.git#v2.0.1"
+    "livebuy-react-native": "git+https://github.com/ariesweng/livebuy-react-native.git#v2.0.2"
   }
 }
 ```
@@ -35,7 +35,7 @@ this is a plain public git dependency.
 
 > **Why a git dependency and not npm registry?** The SDK is not (yet) published to the public npm
 > registry; this mirror repository is the supported remote consumption channel. The tag you pin
-> (`#v2.0.1`) corresponds to this package's `package.json` `version` field at release time — the
+> (`#v2.0.2`) corresponds to this package's `package.json` `version` field at release time — the
 > channel itself does not hard-code any particular version string.
 
 ### Native linking

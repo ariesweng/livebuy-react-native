@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.0.2] - 2026-09-02
+
+### Fixed
+
+`2.0.1` fixed the originally-reported iOS compile error, but the same and a neighboring native
+bridge file had never actually compiled far enough for several other pre-existing bugs to
+surface. This release fixes all of them, found by actually compiling the real native bridge
+source against the real, currently-published core SDK end-to-end:
+
+- **iOS**: two more bugs in the widget bridge (a type-inference issue in the widget-response
+  event emitter; a model no longer decodable via `JSONDecoder`).
+- **iOS**: the main player bridge (`LivebuyRNBridge.swift`) had never compiled successfully
+  against a real SDK at all — three more non-decodable-model issues, 26 sub-component command
+  handlers reaching into now-inaccessible internal SDK properties (rewired to the SDK's public
+  action API), an `apiKey` type mismatch, and one missing forwarding method.
+- **Android**: no changes — `2.0.1` already fixed everything reported there.
+
+If you installed `2.0.1` (iOS) and it still didn't compile, upgrade to `2.0.2` — no other changes,
+no migration needed. If you hit a *different* native compile error after installing `2.0.2`,
+please report it.
+
 ## [2.0.1] - 2026-09-01
 
 ### Fixed

@@ -53,17 +53,22 @@ final class LivebuyWidgetRNView: UIView {
     /// branch) and "the backend sent inside"; applying a default is the UI layer's job.
     private func emitWidgetResponse() {
         guard let w = widget else { return }
-        LivebuyRNBridge.shared?.sendEvent(
-            withName: "LBWidgetResponse",
-            body: [
-                "widget_color": w.widgetColor,
-                // String? → NSNull when nil so the JS bridge receives `null`,
-                // mapped to `widgetBgcolor: null` (raw passthrough).
-                "widget_bgcolor": w.widgetBgcolor ?? NSNull(),
-                // String? → NSNull when nil → `productCard: null` (raw passthrough).
-                "product_card": w.productCard ?? NSNull(),
-            ]
-        )
+        // Explicit `[String: Any]` annotation gives the literal's values an `Any`
+        // contextual type before `??` is resolved — without it, Swift infers `??`'s
+        // generic parameter from `w.widgetBgcolor: String?` alone and rejects
+        // `NSNull()` as "cannot convert to String" (an inline dictionary literal in
+        // call-argument position doesn't get the callee parameter's `Any` type early
+        // enough to save it). Same idiom already used by `lbProductToBody` /
+        // `lbSpecToBody` in LivebuyRNBridge.swift.
+        let body: [String: Any] = [
+            "widget_color": w.widgetColor,
+            // String? → NSNull when nil so the JS bridge receives `null`,
+            // mapped to `widgetBgcolor: null` (raw passthrough).
+            "widget_bgcolor": w.widgetBgcolor ?? NSNull(),
+            // String? → NSNull when nil → `productCard: null` (raw passthrough).
+            "product_card": w.productCard ?? NSNull(),
+        ]
+        LivebuyRNBridge.shared?.sendEvent(withName: "LBWidgetResponse", body: body)
     }
 
     // MARK: - simulate* forwarding
@@ -177,32 +182,35 @@ final class LivebuyFloatingWidgetViewManager: RCTViewManager {
 // MARK: - LBVideoItem deserializer (Widget bridge)
 
 private func lbVideoItemFromArgs(_ map: NSDictionary) -> LBVideoItem? {
-    // Reconstruct a minimal LBVideoItem from bridge-serialized fields.
-    // All required LBVideoItem fields are filled with safe defaults if absent.
+    // Reconstruct a minimal LBVideoItem from bridge-serialized fields, via
+    // LBVideoItem's public memberwise init — LBVideoItem is no longer
+    // Decodable (Schema mapping layer migration: public models are produced
+    // by Core/Mappers/* from internal Core/DTOs/*, not decoded directly).
+    // All required LBVideoItem fields not carried by the bridge map are
+    // filled with the same "safe default" values the prior JSON-decode
+    // approach used.
     guard let id = map["id"] as? String else { return nil }
-    let json: [String: Any] = [
-        "id": id,
-        "type": (map["type"] as? Int) ?? 1,
-        "title": map["title"] as? String ?? "",
-        "cover": map["cover"] as? String ?? "",
-        "preview": "",
-        "duration": 0,
-        "publish_at": "2000-01-01 00:00:00",
-        "watch_num": 0,
-        "pv_num": 0,
-        "live_status": (map["liveStatus"] as? Int) ?? 1,
-        "pin": 0,
-        "show_pv_num": 0,
-        "liveurl": map["liveurl"] as? String ?? "",
-        "playbackurl": map["playbackurl"] as? String ?? "",
-        "preview_time": "00:00",
-        "show_stock": 0,
-        "goods": [
-            "name": "", "pic": "", "price": "0",
-            "original_price": "0", "sold_out": 0, "stock": 0, "status": 1
-        ] as [String: Any],
-    ]
-    guard let data = try? JSONSerialization.data(withJSONObject: json),
-          let item = try? JSONDecoder().decode(LBVideoItem.self, from: data) else { return nil }
-    return item
+    return LBVideoItem(
+        id: id,
+        type: (map["type"] as? Int) ?? 1,
+        title: map["title"] as? String ?? "",
+        sessionName: nil,
+        cover: map["cover"] as? String ?? "",
+        preview: "",
+        duration: 0,
+        publishAt: "2000-01-01 00:00:00",
+        watchNum: 0,
+        pvNum: 0,
+        liveStatus: (map["liveStatus"] as? Int) ?? 1,
+        pin: 0,
+        showPvNum: 0,
+        liveurl: map["liveurl"] as? String ?? "",
+        playbackurl: map["playbackurl"] as? String ?? "",
+        previewTime: "00:00",
+        showStock: false,
+        goods: LBFeaturedGood(
+            name: "", pic: "", price: "0", originalPrice: "0",
+            soldOut: 0, stock: 0, status: 1
+        )
+    )
 }

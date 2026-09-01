@@ -96,7 +96,10 @@ final class LivebuyRNBridge: RCTEventEmitter {
         Task {
             do {
                 try await Livebuy.configure(
-                    apiKey: apiKey.intValue, secret: secret, shopId: shopId, lang: lang,
+                    // apiKey: SDK-wide invariant is String on iOS/Android/Flutter
+                    // (RN alone keeps it a JS `number` at the bridge boundary —
+                    // see react-native/README.md's `apiKey: 12345` example).
+                    apiKey: String(apiKey.intValue), secret: secret, shopId: shopId, lang: lang,
                     user: user, autoPipOnIntercept: autoPipOnIntercept,
                     apiVersion: apiVersion.intValue,
                     configFetchTimeoutMs: configFetchTimeoutMs.intValue,
@@ -1142,6 +1145,10 @@ final class LivebuyPlayerRNView: UIView {
     func skipStart()                                     { playerVC?.skipStart() }
     func cancelAutoNext()                                { playerVC?.cancelAutoNext() }
     func requestEventJoin(eid: Int, keyword: String)     { playerVC?.requestEventJoin(eid: eid, keyword: keyword) }
+    // view-cart-event-rn-core: was missing from this forwarding class entirely
+    // (the RCTViewManager command handler below already called it, so this was a
+    // second, independent compile break in the same feature).
+    func requestViewCart(productId: String?)             { playerVC?.requestViewCart(productId: productId) }
     func reportEventStay(eventId: Int, stayTime: NSNumber?) { playerVC?.reportEventStay(eventId: eventId, stayTime: stayTime?.intValue) }
     func requestAwardClaim(winner: NSDictionary, contact: NSDictionary?) {
         guard let w = lbWinnerFromArgs(winner) else { return }
@@ -1178,74 +1185,85 @@ final class LivebuyPlayerRNView: UIView {
     }
 
     // MARK: - Sub-component simulate* dispatch (expand-simulate-bridge-parity)
+    //
+    // Sub-component views (`chatView` / `productOverlayView` / `productListPanel` /
+    // `operationPanelView` / `infoPanel` / `endScreenView`) are `internal` on
+    // `LivebuyPlayerViewController` (headless — the SDK does not surface the
+    // concrete view objects), so a different-module bridge like this one cannot
+    // reach them directly. `LivebuyPlayerViewController` instead exposes a public
+    // "turnkey action exit" (`perform*`) per sub-component action — see its own
+    // "Sub-component host actions (expand-simulate-bridge-parity)" section, whose
+    // doc comment names the Flutter plugin bridge as the reference consumer of
+    // this exact pattern. Dispatch through those, not the (inaccessible) views.
 
     // ChatView (3)
     func chatView_simulateSendTap(text: String, eventId: NSNumber?) {
-        playerVC?.chatView.simulateSendTap(text: text, eventId: eventId?.intValue)
+        playerVC?.performSendChat(text: text, eventId: eventId?.intValue)
     }
     func chatView_simulateLoadHistoryTap() {
-        playerVC?.chatView.simulateLoadHistoryTap()
+        playerVC?.performLoadChatHistory()
     }
     func chatView_simulateEventJoinTap(eid: Int, keyword: String) {
-        playerVC?.chatView.simulateEventJoinTap(eid: eid, keyword: keyword)
+        playerVC?.performJoinEvent(eid: eid, keyword: keyword)
     }
 
     // ProductOverlayView (3)
     func productOverlay_simulateProductTap(_ map: NSDictionary) {
         guard let p = lbProductFromArgs(map) else { return }
-        playerVC?.productOverlayView.simulateProductTap(p)
+        playerVC?.performProductTap(p)
     }
     func productOverlay_simulatePushCardDismiss() {
-        playerVC?.productOverlayView.simulatePushCardDismiss()
+        playerVC?.performDismissPushCard()
     }
     func productOverlay_simulatePanelToggle() {
-        playerVC?.productOverlayView.simulatePanelToggle()
+        playerVC?.performToggleProductPanel()
     }
 
     // ProductListPanel (3)
     func productListPanel_simulateProductTap(_ map: NSDictionary) {
         guard let p = lbProductFromArgs(map) else { return }
-        playerVC?.productListPanel.simulateProductTap(p)
+        playerVC?.performListProductTap(p)
     }
     func productListPanel_simulateAddCart(_ map: NSDictionary, specMap: NSDictionary?) {
         guard let p = lbProductFromArgs(map) else { return }
         let spec = specMap.flatMap { lbSpecFromArgs($0) }
-        playerVC?.productListPanel.simulateAddCart(p, selectedSpec: spec)
+        playerVC?.performAddToCart(p, selectedSpec: spec)
     }
     func productListPanel_simulateRestockNotice(_ map: NSDictionary) {
         guard let p = lbProductFromArgs(map) else { return }
-        playerVC?.productListPanel.simulateRestockNotice(p)
+        playerVC?.performListRestockNotice(p)
     }
 
     // OperationPanelView (10)
-    func operationPanel_simulateGoodsTap()           { playerVC?.operationPanelView.simulateGoodsTap() }
-    func operationPanel_simulateChatToggleTap()      { playerVC?.operationPanelView.simulateChatToggleTap() }
-    func operationPanel_simulateLikeTap()            { playerVC?.operationPanelView.simulateLikeTap() }
-    func operationPanel_simulateShareTap()           { playerVC?.operationPanelView.simulateShareTap() }
-    func operationPanel_simulateSubtitleToggleTap()  { playerVC?.operationPanelView.simulateSubtitleToggleTap() }
-    func operationPanel_simulateServiceLinkTap()     { playerVC?.operationPanelView.simulateServiceLinkTap() }
-    func operationPanel_simulateMoreTap()            { playerVC?.operationPanelView.simulateMoreTap() }
-    func operationPanel_simulateGuestNameEditTap()   { playerVC?.operationPanelView.simulateGuestNameEditTap() }
-    func operationPanel_simulateSkipStartTap()       { playerVC?.operationPanelView.simulateSkipStartTap() }
-    func operationPanel_simulateBackToLiveTap()      { playerVC?.operationPanelView.simulateBackToLiveTap() }
+    func operationPanel_simulateGoodsTap()           { playerVC?.performGoodsTap() }
+    func operationPanel_simulateChatToggleTap()      { playerVC?.performChatToggle() }
+    func operationPanel_simulateLikeTap()            { playerVC?.performLike() }
+    func operationPanel_simulateShareTap()           { playerVC?.performShare() }
+    func operationPanel_simulateSubtitleToggleTap()  { playerVC?.performSubtitleToggle() }
+    func operationPanel_simulateServiceLinkTap()     { playerVC?.performServiceLink() }
+    func operationPanel_simulateMoreTap()            { playerVC?.performMore() }
+    func operationPanel_simulateGuestNameEditTap()   { playerVC?.performGuestNameEdit() }
+    func operationPanel_simulateSkipStartTap()       { playerVC?.performSkipStart() }
+    func operationPanel_simulateBackToLiveTap()      { playerVC?.performBackToLive() }
 
-    // VideoInfoPanel (5)  — iOS property name is `infoPanel`
-    func videoInfoPanel_simulateSubscribeTap()       { playerVC?.infoPanel.simulateSubscribeTap() }
-    func videoInfoPanel_simulateServiceLinkTap()     { playerVC?.infoPanel.simulateServiceLinkTap() }
-    func videoInfoPanel_simulateShopTap()            { playerVC?.infoPanel.simulateShopTap() }
-    func videoInfoPanel_simulateDismiss()            { playerVC?.infoPanel.simulateDismiss() }
+    // VideoInfoPanel (5) — `performInfoPanelTabChange` takes the wire string
+    // directly ("info" / "notice"); the internal `VideoInfoPanel.Tab` enum this
+    // used to reference is not part of the public API.
+    func videoInfoPanel_simulateSubscribeTap()       { playerVC?.performInfoPanelSubscribe() }
+    func videoInfoPanel_simulateServiceLinkTap()     { playerVC?.performInfoPanelServiceLink() }
+    func videoInfoPanel_simulateShopTap()            { playerVC?.performInfoPanelShop() }
+    func videoInfoPanel_simulateDismiss()            { playerVC?.performInfoPanelDismiss() }
     func videoInfoPanel_simulateTabChange(tab: String) {
-        let t: VideoInfoPanel.Tab = tab == "notice" ? .notice : .info
-        playerVC?.infoPanel.simulateTabChange(to: t)
+        playerVC?.performInfoPanelTabChange(tab: tab)
     }
 
     // EndScreenView (2)
     func endScreen_simulateCancelTap() {
-        playerVC?.endScreenView.simulateCancelTap()
+        playerVC?.performEndScreenCancel()
     }
     func endScreen_simulateHotItemTap(_ map: NSDictionary) {
         guard let item = lbHotItemFromArgs(map) else { return }
-        playerVC?.endScreenView.simulateHotItemTap(item)
+        playerVC?.performEndScreenHotItemTap(item)
     }
 }
 
@@ -1260,70 +1278,71 @@ private func lbProductFromArgs(_ map: NSDictionary) -> LBProduct? {
     guard let id = map["id"] as? String else { return nil }
     // product-bridge-data-core: stop hardcoding 0/[]. Read the full field set
     // from the camelCase bridge map; only fall back when a key is absent.
-    // The INTERNAL DTO JSON below stays snake_case (iOS roundtrip trick) — that
-    // is NOT the wire; the bridge wire keys are camelCase (read from `map`).
-    var json: [String: Any] = [
-        "id": id,
-        "goods_no": map["goodsNo"] as? String ?? "",
-        "goods_gpn": map["goodsGpn"] as? String ?? "",
-        "name": map["name"] as? String ?? "",
-        "price": rnDouble(map["price"]) ?? 0.0,
-        "price_show": map["priceShow"] as? String ?? "",
-        "original_price_show": map["originalPriceShow"] as? String ?? "",
-        "stock": rnInt(map["stock"]) ?? 0,
-        "pic": map["pic"] as? String ?? "",
-        "photos": rnStringArray(map["photos"]),
-        "brief": map["brief"] as? String ?? "",
+    //
+    // Built directly via LBProduct's public memberwise init — LBProduct is no
+    // longer Decodable (Schema mapping layer migration: public models are
+    // produced by Core/Mappers/* from internal Core/DTOs/*, not decoded
+    // directly; see the sibling `lbWinnerFromArgs` below, which already does
+    // this for LBWinner/LBAward). The old snake_case-JSON-then-JSONDecoder
+    // roundtrip predates that migration and no longer compiles.
+    return LBProduct(
+        id: id,
+        goodsNo: map["goodsNo"] as? String ?? "",
+        goodsGpn: map["goodsGpn"] as? String ?? "",
+        name: map["name"] as? String ?? "",
+        price: rnDouble(map["price"]) ?? 0.0,
+        priceShow: map["priceShow"] as? String ?? "",
+        // originalPrice: nullable — nil when absent, matching LBProduct's own
+        // `Double?` field (no synthetic default; distinct from goods-conclusion
+        // fields below, which have real init defaults).
+        originalPrice: rnDouble(map["originalPrice"]),
+        originalPriceShow: map["originalPriceShow"] as? String ?? "",
+        stock: rnInt(map["stock"]) ?? 0,
+        pic: map["pic"] as? String ?? "",
+        photos: rnStringArray(map["photos"]),
+        brief: map["brief"] as? String ?? "",
         // add-product-description-core-rn: JS -> native reverse path (simulate* test hook),
         // same missing-key-tolerant style as `brief`.
-        "description": map["description"] as? String ?? "",
-        "sold_out": rnIntFlag(map["soldOut"]),
-        "is_hot": rnIntFlag(map["isHot"]),
-        "is_out_soon": rnIntFlag(map["isOutSoon"]),
-        "narrate_status": rnInt(map["narrateStatus"]) ?? 0,
-        "is_await": rnIntFlag(map["isAwait"]),
-        "is_await_notice": rnIntFlag(map["isAwaitNotice"]),
-        "diversion_url": map["diversionUrl"] as? String ?? "",
-        "specifications": rnSpecJSONArray(map["specifications"]),
-        "spec_options": rnSpecOptionJSONArray(map["specOptions"]),
-    ]
-    // originalPrice / beginTime / endTime: nullable — only set when present.
-    if let op = rnDouble(map["originalPrice"]) { json["original_price"] = op }
-    if let bt = rnInt(map["beginTime"]) { json["begin_time"] = bt }
-    if let et = rnInt(map["endTime"]) { json["end_time"] = et }
-    // Goods conclusion fields (goods-conclusion-fields spec): only set when the
-    // host passes them back (output-only fields a host rarely supplies). Absent →
-    // native LBProduct's defaulted property / derived value applies (a9d13a7).
-    if let cv = rnBool(map["canView"]) { json["can_view"] = cv }
-    if let cb = rnBool(map["canBuy"]) { json["can_buy"] = cb }
-    if let isn = rnBool(map["isNarrating"]) { json["is_narrating"] = isn }
-    if let nl = rnBool(map["needLabel"]) { json["need_label"] = nl }
-    if let lb = map["label"] as? String { json["label"] = lb }
-    // add-product-video-id-core-rn: videoId — omit-if-absent (key missing →
-    // LBProductDTO decodes videoId as nil), letting a host simulate an
-    // `other_goods[]`-sourced product via `simulateProductTap`/`simulateAddCart`.
-    if let vid = map["videoId"] as? String { json["video_id"] = vid }
-    guard let data = try? JSONSerialization.data(withJSONObject: json),
-          let product = try? JSONDecoder().decode(LBProduct.self, from: data) else { return nil }
-    return product
+        description: map["description"] as? String ?? "",
+        soldOut: rnIntFlag(map["soldOut"]),
+        isHot: rnIntFlag(map["isHot"]),
+        isOutSoon: rnIntFlag(map["isOutSoon"]),
+        narrateStatus: rnInt(map["narrateStatus"]) ?? 0,
+        // Goods conclusion fields (goods-conclusion-fields spec): absent → the
+        // SAME defaults LBProduct's own init already applies (a9d13a7).
+        canView: rnBool(map["canView"]) ?? true,
+        canBuy: rnBool(map["canBuy"]) ?? true,
+        isNarrating: rnBool(map["isNarrating"]) ?? false,
+        needLabel: rnBool(map["needLabel"]) ?? false,
+        label: map["label"] as? String ?? "",
+        isAwait: rnIntFlag(map["isAwait"]),
+        isAwaitNotice: rnIntFlag(map["isAwaitNotice"]),
+        beginTime: rnInt(map["beginTime"]),
+        endTime: rnInt(map["endTime"]),
+        diversionUrl: map["diversionUrl"] as? String ?? "",
+        specifications: lbSpecsFromArray(map["specifications"]),
+        specOptions: lbSpecOptionsFromArray(map["specOptions"]),
+        // add-product-video-id-core-rn: videoId — nil when absent, letting a
+        // host simulate an `other_goods[]`-sourced product via
+        // `simulateProductTap`/`simulateAddCart`.
+        videoId: map["videoId"] as? String
+    )
 }
 
 private func lbSpecFromArgs(_ map: NSDictionary) -> LBSpec? {
     guard let id = map["id"] as? String else { return nil }
-    var json: [String: Any] = [
-        "id": id,
-        "name": map["name"] as? String ?? "",
-        "specification_no": map["specificationNo"] as? String ?? "",
-        "price": rnDouble(map["price"]) ?? 0.0,
-        "price_show": map["priceShow"] as? String ?? "",
-        "original_price_show": map["originalPriceShow"] as? String ?? "",
-        "stock": rnInt(map["stock"]) ?? 0,
-        "photos": rnStringArray(map["photos"]),
-    ]
-    if let op = rnDouble(map["originalPrice"]) { json["original_price"] = op }
-    guard let data = try? JSONSerialization.data(withJSONObject: json),
-          let spec = try? JSONDecoder().decode(LBSpec.self, from: data) else { return nil }
-    return spec
+    // Built directly via LBSpec's public memberwise init — see lbProductFromArgs above.
+    return LBSpec(
+        id: id,
+        name: map["name"] as? String ?? "",
+        specificationNo: map["specificationNo"] as? String ?? "",
+        price: rnDouble(map["price"]) ?? 0.0,
+        priceShow: map["priceShow"] as? String ?? "",
+        originalPrice: rnDouble(map["originalPrice"]),
+        originalPriceShow: map["originalPriceShow"] as? String ?? "",
+        stock: rnInt(map["stock"]) ?? 0,
+        photos: rnStringArray(map["photos"])
+    )
 }
 
 // MARK: - product-bridge-data-core bridge-map value coercion helpers
@@ -1367,50 +1386,47 @@ private func rnStringArray(_ value: Any?) -> [String] {
     return (value as? [Any])?.compactMap { $0 as? String } ?? [String]()
 }
 
-/// Build the internal snake_case `LBSpec` DTO JSON array from the camelCase
-/// `specifications` bridge array.
-private func rnSpecJSONArray(_ value: Any?) -> [[String: Any]] {
-    guard let arr = value as? [[String: Any]] else { return [[String: Any]]() }
+/// Build `[LBSpec]` directly from the camelCase `specifications` bridge array
+/// (LBSpec's own public memberwise init — see lbProductFromArgs above for why).
+private func lbSpecsFromArray(_ value: Any?) -> [LBSpec] {
+    guard let arr = value as? [[String: Any]] else { return [] }
     return arr.map { e in
-        var s: [String: Any] = [
-            "id": e["id"] as? String ?? "",
-            "name": e["name"] as? String ?? "",
-            "specification_no": e["specificationNo"] as? String ?? "",
-            "price": rnDouble(e["price"]) ?? 0.0,
-            "price_show": e["priceShow"] as? String ?? "",
-            "original_price_show": e["originalPriceShow"] as? String ?? "",
-            "stock": rnInt(e["stock"]) ?? 0,
-            "photos": rnStringArray(e["photos"]),
-        ]
-        if let op = rnDouble(e["originalPrice"]) { s["original_price"] = op }
-        return s
+        LBSpec(
+            id: e["id"] as? String ?? "",
+            name: e["name"] as? String ?? "",
+            specificationNo: e["specificationNo"] as? String ?? "",
+            price: rnDouble(e["price"]) ?? 0.0,
+            priceShow: e["priceShow"] as? String ?? "",
+            originalPrice: rnDouble(e["originalPrice"]),
+            originalPriceShow: e["originalPriceShow"] as? String ?? "",
+            stock: rnInt(e["stock"]) ?? 0,
+            photos: rnStringArray(e["photos"])
+        )
     }
 }
 
-/// Build the internal `spec_options` DTO JSON array `{name, child}`.
-private func rnSpecOptionJSONArray(_ value: Any?) -> [[String: Any]] {
-    guard let arr = value as? [[String: Any]] else { return [[String: Any]]() }
+/// Build `[LBSpecOption]` directly from the camelCase `specOptions` bridge array.
+/// `LBSpecOption` is still `Decodable`, but has a public memberwise init too
+/// (for exactly this cross-platform-bridge use case) — used here for
+/// consistency with `lbSpecsFromArray` rather than mixing construction styles.
+private func lbSpecOptionsFromArray(_ value: Any?) -> [LBSpecOption] {
+    guard let arr = value as? [[String: Any]] else { return [] }
     return arr.map { e in
-        return [
-            "name": e["name"] as? String ?? "",
-            "child": rnStringArray(e["child"]),
-        ]
+        LBSpecOption(name: e["name"] as? String ?? "", child: rnStringArray(e["child"]))
     }
 }
 
 private func lbHotItemFromArgs(_ map: NSDictionary) -> LBHotItem? {
     guard let id = map["id"] as? String else { return nil }
     // duration is a formatted string (e.g. "38:36"); watchNum is NOT in the model
-    // (CLAUDE.md invariant: not present in API hot[] response).
-    let json: [String: Any] = [
-        "id": id,
-        "title": map["title"] as? String ?? "",
-        "cover": map["cover"] as? String ?? "",
-        "duration": map["duration"] as? String ?? "00:00",
-    ]
-    guard let data = try? JSONSerialization.data(withJSONObject: json),
-          let item = try? JSONDecoder().decode(LBHotItem.self, from: data) else { return nil }
-    return item
+    // (CLAUDE.md invariant: not present in API hot[] response). Built directly
+    // via LBHotItem's public memberwise init — see lbProductFromArgs above.
+    return LBHotItem(
+        id: id,
+        cover: map["cover"] as? String ?? "",
+        title: map["title"] as? String ?? "",
+        duration: map["duration"] as? String ?? "00:00"
+    )
 }
 
 private func lbWinnerFromArgs(_ map: NSDictionary) -> LBWinner? {
