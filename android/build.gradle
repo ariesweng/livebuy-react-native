@@ -1,0 +1,142 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Android packaging for the `livebuy-react-native` headless bridge.
+//
+// This file is what lets RN Android autolinking DETECT this package (`npx
+// react-native config` → `livebuy-react-native.platforms.android` becomes non-null)
+// and COMPILE the native Kotlin bridge into a host app:
+//
+//   • LivebuyRNPackage.kt        — the ReactPackage autolink entry point
+//   • LivebuyRNModule.kt         — the ReactContextBaseJavaModule (configure/clearUser/…)
+//   • Livebuy{Player,Widget,FloatingWidget}ViewManager.kt — the SimpleViewManagers
+//
+// Without it the bridge only ships `.kt` sources that are never compiled against
+// the real Android SDK — an SDK API rename, a new enum case, or a changed model
+// type would only surface in a consumer's `./gradlew assembleDebug`, far too late.
+//
+// Mirrors the RN iOS podspec (`../livebuy-react-native.podspec`). Android is the
+// EASY side: the core SDK is a Maven artifact (`tv.livebuy:livebuy`), so a plain
+// `implementation` cleanly resolves it — NO SwiftPM↔CocoaPods problem, NO
+// DECISION-PENDING (contrast the iOS core-pod work in
+// `ios-core-cocoapods-podspec-distribution`).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// NOTE: no `buildscript { classpath ... }` here — when this module is autolinked
+// into a host app it becomes a subproject of the RN host root, which already puts
+// the Android Gradle Plugin + Kotlin plugin on the buildscript classpath (host
+// `android/build.gradle` applies `com.facebook.react.rootproject` and declares the
+// AGP/kotlin classpaths). Subprojects (like the host's own `:app`) just `apply
+// plugin` and inherit those — re-declaring a versionless classpath here fails to
+// resolve.
+apply plugin: "com.android.library"
+apply plugin: "org.jetbrains.kotlin.android"
+
+// RN native-module convention: read compile/target SDK from the host app's
+// `rootProject.ext` (set by the RN 0.7x Android template) so we track the host's
+// toolchain; fall back to the core SDK's own level when built standalone.
+def getExtOrDefault(name, defaultValue) {
+    return rootProject.ext.has(name) ? rootProject.ext.get(name) : defaultValue
+}
+
+android {
+    namespace "tv.livebuy.rn"
+    compileSdk getExtOrDefault("compileSdkVersion", 34)
+
+    // Track the host's build-tools (RN template sets `ext.buildToolsVersion`) so we
+    // don't pull a different default that the host may not have installed.
+    def hostBuildTools = getExtOrDefault("buildToolsVersion", null)
+    if (hostBuildTools != null) {
+        buildToolsVersion hostBuildTools
+    }
+
+    defaultConfig {
+        // minSdk is pinned to 24 to align the core `:livebuy` module (minSdk 24);
+        // the RN template's default (21) is lower and cannot link the core AAR.
+        minSdk 24
+        targetSdk getExtOrDefault("targetSdkVersion", 34)
+    }
+
+    // JVM target 17 — RN 0.73+ requires JDK 17 and its gradle plugin pins the Java
+    // compile target to 17 for android subprojects; the Kotlin target MUST match or
+    // Gradle fails with a jvm-target compatibility error. (Same choice as
+    // flutter/android/build.gradle. Consuming the core AAR — built at 1.8 — from a
+    // 17 module is backward-compatible.)
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    // Bridge sources use the standard AGP layout: src/main/java/tv/livebuy/rn/*.kt
+    // (LivebuyRNPackage / LivebuyRNModule / the three ViewManagers) + the manifest at
+    // src/main/AndroidManifest.xml — both AGP defaults, so no sourceSets override is
+    // needed. (A flat module-root source dir clashes with AGP's own JNI-lib task
+    // outputs at the module root — the conventional layout avoids that.)
+}
+
+// RN 0.7x host does NOT enable `dependencyResolutionManagement { FAIL_ON_PROJECT_REPOS }`,
+// so this library-level repositories block resolves the core artifact with ZERO
+// consumer settings.gradle changes (more turnkey than the iOS plan-B Podfile source).
+//
+// FALLBACK — if a consumer is on a newer RN / centralizes repos via
+// `dependencyResolutionManagement` (FAIL_ON_PROJECT_REPOS), this block is ignored
+// and the consumer MUST add the Livebuy Pages Maven repo to their settings.gradle
+// `dependencyResolutionManagement.repositories` (documented in
+// docs/handoff/android-partner-integration-quickstart.md).
+repositories {
+    google()
+    mavenCentral()   // resolves the core POM's transitive com.amazonaws:ivs-player:1.52.0
+    // Livebuy Android SDK remote channel — static Maven tree served by GitHub Pages
+    // from the public mirror repo `ariesweng/livebuy-android-sdk` (symmetric to iOS).
+    maven { url "https://ariesweng.github.io/livebuy-android-sdk/" }
+    maven { url "https://jitpack.io" }   // published-consumer fallback (mirror Flutter android)
+}
+
+dependencies {
+    // React Native runtime — version pinned/injected by the host app's RN gradle
+    // setup (react-native-gradle-plugin autolinking). The classic (non-TurboModule)
+    // bridge only needs the core RN artifact: ReactPackage / ReactContextBaseJavaModule
+    // / SimpleViewManager all live here.
+    implementation "com.facebook.react:react-android"
+
+    // Core headless Livebuy Android SDK. The bridge imports ONLY tv.livebuy.sdk.*
+    // (LivebuySDK / models / events / core.config / player.LivebuyPlayerView /
+    // player.VideoInfoPanel / widget.FloatingWidget / widget.LivebuyWidget) — all in
+    // the core `:livebuy` module, NONE in :livebuy-ui / :livebuy-reference-ui. So a
+    // single `tv.livebuy:livebuy` dependency is sufficient (RN has its own TypeScript
+    // reference-ui). Version aligns the Android remote channel (LIVEBUY_MAVEN_VERSION,
+    // currently 4.11.0 — the current official published version, iOS/Android lockstep,
+    // git tag `android-v4.11.0`) and MUST be a PUBLISHED channel version whose core
+    // artifact carries the bridge's full core API surface, INCLUDING the post-rename
+    // class names `tv.livebuy.sdk.LivebuySDK` / `tv.livebuy.sdk.player.LivebuyPlayerView`
+    // (2026-07-16 brand-casing rename, commit c140f4bf; any channel version published
+    // before that commit — including the very first pin 3.2.0 — still resolves to the
+    // pre-rename `LiveBuySDK` / `LiveBuyPlayerView` class names and fails a consumer's
+    // `import tv.livebuy.sdk.LivebuySDK` line even though this module's own Kotlin
+    // source compiles fine against monorepo HEAD). This particular bump (4.10.0 ->
+    // 4.11.0) is routine version tracking, not a rename/API fix — v4.11.0 introduces no
+    // change touching anything this bridge references. Do NOT pin the core-internal
+    // `defaultConfig.versionName` (1.3.0 — X-SDK-Version only, not published to the
+    // channel). This pin is a point-in-time snapshot, not a moving target — it WILL
+    // drift again whenever core cuts a new published version; bump it the same way when
+    // that happens, don't assume the literal version above stays current.
+    implementation "tv.livebuy:livebuy:4.11.0"
+
+    // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
+    // MainScope / launch). The core SDK pulls it transitively but as `implementation`,
+    // so it is NOT on this module's compile classpath — declare it explicitly (same
+    // rationale as flutter/android/build.gradle).
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+    // LivebuyRNModule opens URLs via Chrome Custom Tabs
+    // (androidx.browser.customtabs.CustomTabsIntent). The core `:livebuy` does not
+    // declare androidx.browser; version aligns :livebuy-ui / :livebuy-reference-ui (1.8.0).
+    implementation "androidx.browser:browser:1.8.0"
+
+    // rn-android-auto-pip-entry — JVM unit test for the pure AutoPipPolicy decision
+    // helpers (zero-Android-dependency, so plain JUnit runs on the JVM with no
+    // android.jar stub / Robolectric).
+    testImplementation "junit:junit:4.13.2"
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Minimal manifest for the livebuy-react-native Android library module.
+
+  AGP requires a main manifest for a `com.android.library` module even when it
+  declares no components; the package name is supplied by `namespace` in
+  build.gradle (tv.livebuy.rn), so no `package` attribute is needed here. This
+  bridge contributes no Activities/Services/permissions of its own — those belong
+  to the host app and the core `tv.livebuy:livebuy` SDK it links.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

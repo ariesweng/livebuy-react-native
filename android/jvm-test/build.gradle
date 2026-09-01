@@ -1,0 +1,164 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// PURE-JVM test project for the RN Android bridge's zero-dependency helpers.
+// (change: rn-android-jvm-test-gate, capability `local-ci-execution`)
+//
+// WHY THIS EXISTS — THREE TESTS THAT NOTHING RAN
+//
+//   `../src/test/java/tv/livebuy/rn/` has held real Kotlin unit tests since
+//   2026-07-14 (AutoPipPolicyTest), 2026-07-30 (GuestNicknameVerifiedBridgeTest)
+//   and 2026-08-04 (SdkConfigOpaqueBagTest). They exercise the REAL production
+//   objects in ../src/main/java/tv/livebuy/rn/ — not copies.
+//
+//   No gate in this repo executed them. `react-native/android/` has no
+//   settings.gradle; `android/settings.gradle` does not include it; ci-all's
+//   rn stage is `npm ci` + `tsc --noEmit` + `npm test`, which never sees a .kt
+//   file; and the bridge native compile (bridge-build.yml) is SKIPPED by ci-all.
+//   SdkConfigOpaqueBagTest's own header calls itself "the only executable
+//   coverage available for a module this repo cannot build" — "executable" was
+//   an IOU until this project made it true.
+//
+// WHY A SEPARATE PROJECT, AND NOT `../build.gradle`
+//
+//   ../build.gradle is the RN AUTOLINK contract: it is what makes
+//   `npx react-native config` detect this package and compile the native bridge
+//   into a host app. It deliberately carries NO `buildscript { classpath … }`
+//   because when autolinked it becomes a subproject of the RN host root, which
+//   supplies AGP + the Kotlin plugin; its `com.facebook.react:react-android`
+//   dependency is version-injected by that host. Touching it risks host-side
+//   integration — and that path is UNTESTABLE here (the bridge native compile
+//   needs network + a published SDK + tens of minutes, which is why ci-all
+//   honestly skips it). So this project sits ALONGSIDE it and shares nothing
+//   but the source directories.
+//
+// HOW THE "PURE SUBSET" IS SELECTED — AND HOW IT FAILS
+//
+//   PURE_HELPER_SOURCES below is an explicit, file-by-file ALLOWLIST. It is not
+//   a heuristic: nothing here scans source text guessing whether a file "looks
+//   Android-free".
+//
+//   Sitting OUTSIDE that list means one of two different things, and conflating
+//   them hides a real gap:
+//
+//     • CANNOT be compiled here. LivebuyRNModule, the three ViewManagers and
+//       LivebuyRNPackage import com.facebook.react.* / android.* /
+//       tv.livebuy.sdk.*, so a plain JVM project cannot build them at all.
+//     • COULD be compiled here, but is not listed. LivebuyPiPUserLeaveHint's
+//       only import is java.util.concurrent.CopyOnWriteArrayList — it compiles
+//       on a bare JVM today (measured: adding it to the list below gives BUILD
+//       SUCCESSFUL). It stays out because it has NO TEST, and per the note on
+//       the list itself, listing a helper without a test buys this gate nothing.
+//       So it is a LIVE INSTANCE of the first blind spot below, not a
+//       hypothetical one.
+//
+//   Every way this selection can go wrong is LOUD (each verified by injection
+//   while this file was written — see the change's tasks.md for raw output):
+//
+//     • an allowlisted helper gains an android.* / com.facebook.react.* /
+//       tv.livebuy.sdk.* import
+//         → :compileKotlin fails, BUILD FAILED.
+//     • a test references a type that is NOT allowlisted
+//         → `e: … Unresolved reference: …`, BUILD FAILED.
+//     • an allowlist entry points at a file that no longer exists
+//         → the assertion below throws at CONFIGURATION time.
+//       (That last one is why the assertion exists at all: a Gradle include
+//        pattern that matches nothing is SILENT, which is the one place this
+//        mechanism could have failed quietly.)
+//
+//   WHAT IT DOES NOT CATCH — stated, not implied:
+//
+//     • A pure helper with NO test and no allowlist entry is invisible here —
+//       and that is not hypothetical: LivebuyPiPUserLeaveHint is one right now.
+//       Green does NOT mean "src/main is fully pure" or "every pure helper is
+//       covered".
+//     • Deleting a test file shrinks coverage silently; nothing asserts a
+//       minimum test count.
+//     • The React/Android-dependent files above get ZERO coverage from this
+//       project. This is NOT a substitute for the bridge native compile
+//       (bridge-build.yml) — an SDK API rename or a React API change still
+//       surfaces only there.
+// ─────────────────────────────────────────────────────────────────────────────
+
+buildscript {
+    repositories { mavenCentral() }
+    dependencies {
+        // Same coordinate + version as android/build.gradle's `kotlin_version`
+        // (1.9.22). Kept as a plain `buildscript` classpath rather than the
+        // `plugins { id … version … }` DSL on purpose: the plugins DSL resolves
+        // a plugin MARKER from the Gradle Plugin Portal, while this coordinate
+        // comes from mavenCentral and is already in the local Gradle cache
+        // because android/build.gradle uses it. Divergence from the Android
+        // module's Kotlin version is therefore one greppable string, not a
+        // second version scheme.
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22"
+    }
+}
+
+apply plugin: "org.jetbrains.kotlin.jvm"
+
+repositories { mavenCentral() }   // kotlin-stdlib + junit only
+
+// ── the bridge's real source directories (NOT copies) ────────────────────────
+def bridgeMainDir = file("../src/main/java")
+def bridgeTestDir = file("../src/test/java")
+
+// ── the pure subset: zero Android / zero React / zero SDK imports ────────────
+// Paths are relative to bridgeMainDir. Adding a helper here is only meaningful
+// together with a test for it — a test is what makes the gate red when the
+// helper stops being pure.
+def PURE_HELPER_SOURCES = [
+    "tv/livebuy/rn/AutoPipPolicy.kt",
+    "tv/livebuy/rn/GuestNicknameVerifiedBridge.kt",
+    "tv/livebuy/rn/SdkConfigOpaqueBag.kt",
+]
+
+// Gradle include patterns that match nothing are silent. Fail loudly instead,
+// at configuration time, naming the paths that are gone.
+def missingHelpers = PURE_HELPER_SOURCES.findAll { !new File(bridgeMainDir, it).isFile() }
+if (!missingHelpers.isEmpty()) {
+    throw new GradleException(
+        "rn-android-jvm-test-gate: PURE_HELPER_SOURCES lists file(s) that do not exist under " +
+        "${bridgeMainDir}:\n  - " + missingHelpers.join("\n  - ") + "\n" +
+        "They were renamed, moved or deleted. Update the allowlist in " +
+        "react-native/android/jvm-test/build.gradle to match reality — do NOT just drop the " +
+        "entry if the helper still exists somewhere, that silently removes it from this gate."
+    )
+}
+
+sourceSets {
+    main {
+        java.srcDirs = []                       // Kotlin only; no java sources here
+        kotlin.srcDirs = [bridgeMainDir]
+        kotlin.setIncludes(PURE_HELPER_SOURCES) // everything else stays uncompiled
+    }
+    test {
+        java.srcDirs = []
+        kotlin.srcDirs = [bridgeTestDir]        // NOT filtered: every test must compile
+    }
+}
+
+// JDK 17 — matches the bridge module (../build.gradle compileOptions/kotlinOptions)
+// and the JDK this repo builds Android with.
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    kotlinOptions.jvmTarget = "17"
+}
+
+dependencies {
+    // The only test dependency. No android.jar stub, no Robolectric, no React
+    // Native, no published tv.livebuy:livebuy — the helpers are import-free by
+    // design (see AutoPipPolicy.kt:14-15) and the tests import only JUnit.
+    testImplementation "junit:junit:4.13.2"
+}
+
+test {
+    useJUnit()
+    // Per-test lines so a run's output is evidence of what actually executed,
+    // not just "BUILD SUCCESSFUL".
+    testLogging {
+        events "passed", "failed", "skipped"
+        exceptionFormat "full"
+    }
+}
