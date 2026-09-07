@@ -29,6 +29,7 @@ import tv.livebuy.sdk.events.LivebuyEventListener
 import tv.livebuy.sdk.models.LBChannel
 import tv.livebuy.sdk.models.LBCheckoutItem
 import tv.livebuy.sdk.models.LBError
+import tv.livebuy.sdk.models.LBFeaturedGood
 import tv.livebuy.sdk.models.LBPlaybackProgress
 import tv.livebuy.sdk.models.LBPlayerState
 import tv.livebuy.sdk.models.LBPollResponse
@@ -682,6 +683,9 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         }
     }
 
+    // video-linked-goods-core-rn: `goods` (the linked/featured product preview) is nullable on
+    // the native model, and — like `LBProduct.videoId` above — the key is OMITTED entirely when
+    // null (never written as a JS `null`), so JS sees `goods` as optional/`undefined`.
     private fun serializeVideoItem(item: LBVideoItem): WritableMap = WritableNativeMap().apply {
         putString("id", item.id)
         putInt("type", item.type)
@@ -700,6 +704,17 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         putString("playbackurl", item.playbackurl)
         putString("previewTime", item.previewTime)
         putBoolean("showStock", item.showStock)
+        item.goods?.let { putMap("goods", serializeFeaturedGood(it)) }
+    }
+
+    private fun serializeFeaturedGood(good: LBFeaturedGood): WritableMap = WritableNativeMap().apply {
+        putString("name", good.name)
+        putString("pic", good.pic)
+        putString("price", good.price)
+        putString("originalPrice", good.originalPrice)
+        putInt("soldOut", good.soldOut)
+        putInt("stock", good.stock)
+        putInt("status", good.status)
     }
 
     // MARK: - login (login-session-token-core)
@@ -1021,10 +1036,20 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             putString("cover", channel.cover)
             putString("start", channel.start)
             putInt("live_status", channel.liveStatus)
+            // channel-type-bridge-core-rn — additive. Feeds `isFinishedLiveReplay`
+            // downstream (react-native-ui); raw passthrough, not interpreted here.
+            putInt("type", channel.type)
             putString("title", channel.title)
             putString("service_link", channel.shop.serviceLink)
             putString("subtitle_url", channel.subtitleUrl)
             putInt("is_subtitle", channel.isSubtitle)
+            // player-channel-chrome-fields-core-rn — additive. Feeds the player
+            // header chrome (avatar + title + subtitle) that iOS/Android's
+            // view-model layer auto-feeds via `ingestChannel`; RN has no such
+            // automatic path, hence this bridge projection.
+            putString("shop_name", channel.shop.name)
+            putString("shop_logo", channel.shop.logo)
+            putString("share_url", channel.shareUrl)
         }
         emit("LBPlayerChannelInfo", map)
     }

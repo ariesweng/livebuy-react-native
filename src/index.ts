@@ -18,6 +18,8 @@ export type {
   // power-profile-adaptation (第 5 支 parity) — thermal power-profile tier wire name
   LBPowerProfile,
   LBVideoItem,
+  // video-linked-goods-core-rn — linked/featured product preview on a video's widget card
+  LBFeaturedGood,
   // video-addcart-endpoint-core 路線 B (distinct from route-A LBCartResult below)
   LBAddToCartOptions,
   LBAddToCartResult,

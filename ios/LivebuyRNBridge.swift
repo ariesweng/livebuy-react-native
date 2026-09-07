@@ -494,6 +494,11 @@ final class LivebuyRNBridge: RCTEventEmitter {
 
     /// Serialize an `LBVideoItem` into the camelCase bridge map shared by
     /// `fetchLatestLive` and the `fetchWidget` `videos[]` entries.
+    ///
+    /// video-linked-goods-core-rn: `goods` (the linked/featured product
+    /// preview) follows the same nil-omits-the-key convention as
+    /// `sessionName` above — a video with no linked product simply has no
+    /// `goods` key in the resulting map (never a `NSNull`/JS `null`).
     private static func serializeVideoItem(_ item: LBVideoItem) -> [String: Any] {
         var map: [String: Any] = [
             "id": item.id,
@@ -514,7 +519,22 @@ final class LivebuyRNBridge: RCTEventEmitter {
             "showStock": item.showStock,
         ]
         if let sessionName = item.sessionName { map["sessionName"] = sessionName }
+        if let goods = item.goods { map["goods"] = Self.serializeFeaturedGood(goods) }
         return map
+    }
+
+    /// Serialize an `LBFeaturedGood` (video-linked-goods-core-rn) into the
+    /// camelCase nested dict carried under `serializeVideoItem`'s `goods` key.
+    private static func serializeFeaturedGood(_ goods: LBFeaturedGood) -> [String: Any] {
+        [
+            "name": goods.name,
+            "pic": goods.pic,
+            "price": goods.price,
+            "originalPrice": goods.originalPrice,
+            "soldOut": goods.soldOut,
+            "stock": goods.stock,
+            "status": goods.status,
+        ]
     }
 
     // MARK: - login (login-session-token-core)
@@ -860,11 +880,21 @@ final class LivebuyRNBridge: RCTEventEmitter {
             "cover": channel.cover,
             "start": channel.start,
             "live_status": channel.liveStatus,
+            // channel-type-bridge-core-rn — additive. Feeds `isFinishedLiveReplay`
+            // downstream (react-native-ui); raw passthrough, not interpreted here.
+            "type": channel.type,
             "title": channel.title,
             "service_link": channel.shop.serviceLink,
             // rb-react-native-subtitle-channel-info-bridge-core — additive.
             "subtitle_url": channel.subtitleUrl,
             "is_subtitle": channel.isSubtitle,
+            // player-channel-chrome-fields-core-rn — additive. Feeds the player
+            // header chrome (avatar + title + subtitle) that iOS/Android's
+            // view-model layer auto-feeds via `ingestChannel`; RN has no such
+            // automatic path, hence this bridge projection.
+            "shop_name": channel.shop.name,
+            "shop_logo": channel.shop.logo,
+            "share_url": channel.shareUrl,
         ])
     }
 
@@ -967,14 +997,16 @@ private final class BridgeListener: NSObject, LivebuyEventListener {
 
 // MARK: - LivebuyPlayerRNView — UIView wrapping LivebuyPlayerViewController
 
-/// Narrow, `Equatable` snapshot of ONLY the 8 fields `LBPlayerChannelInfo` projects
-/// (rb-react-native-subtitle-channel-info-bridge-core §momentState dedupe). Deliberately
-/// NOT a whole-`LBChannel` comparison — `LBChannel` carries many more fields (goods, nav,
-/// spec, watchNum, …) that have no bearing on this projection; comparing the full model
-/// would re-fire on changes this event doesn't even carry, while comparing nothing at all
-/// (always emitting) would spam the RN bridge on every unrelated `onMomentStateChange`
+/// Narrow, `Equatable` snapshot of ONLY the 12 fields `LBPlayerChannelInfo` projects
+/// (rb-react-native-subtitle-channel-info-bridge-core §momentState dedupe;
+/// player-channel-chrome-fields-core-rn added shopName/shopLogo/shareUrl;
+/// channel-type-bridge-core-rn added type). Deliberately NOT a whole-`LBChannel`
+/// comparison — `LBChannel` carries many more fields (goods, nav, spec, watchNum, …)
+/// that have no bearing on this projection; comparing the full model would re-fire on
+/// changes this event doesn't even carry, while comparing nothing at all (always
+/// emitting) would spam the RN bridge on every unrelated `onMomentStateChange`
 /// publish (subtitle CC toggle, viewer-count tick, chat-visibility flip, end-screen
-/// countdown tick, product-overlay updates, …) that leaves these 8 fields unchanged.
+/// countdown tick, product-overlay updates, …) that leaves these 12 fields unchanged.
 private struct ChannelInfoSnapshot: Equatable {
     let publishAt: String
     let cover: String
@@ -984,6 +1016,17 @@ private struct ChannelInfoSnapshot: Equatable {
     let serviceLink: String
     let subtitleUrl: String
     let isSubtitle: Int
+    // player-channel-chrome-fields-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss a shop-name/logo/shareUrl-only change.
+    let shopName: String
+    let shopLogo: String
+    let shareUrl: String
+    // channel-type-bridge-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss a type-only change (e.g. live -> finished-replay
+    // transition where liveStatus doesn't move).
+    let type: Int
 
     init(_ channel: LBChannel) {
         publishAt = channel.publishAt
@@ -994,6 +1037,10 @@ private struct ChannelInfoSnapshot: Equatable {
         serviceLink = channel.shop.serviceLink
         subtitleUrl = channel.subtitleUrl
         isSubtitle = channel.isSubtitle
+        shopName = channel.shop.name
+        shopLogo = channel.shop.logo
+        shareUrl = channel.shareUrl
+        type = channel.type
     }
 }
 

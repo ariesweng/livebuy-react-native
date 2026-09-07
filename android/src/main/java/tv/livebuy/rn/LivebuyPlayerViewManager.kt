@@ -34,15 +34,17 @@ import tv.livebuy.sdk.player.PiPHelper
 import tv.livebuy.sdk.player.VideoInfoPanel
 
 /**
- * Narrow, structurally-equal (Kotlin `data class`) snapshot of ONLY the 8 fields
+ * Narrow, structurally-equal (Kotlin `data class`) snapshot of ONLY the 12 fields
  * `LBPlayerChannelInfo` projects (rb-react-native-subtitle-channel-info-bridge-core
- * §momentState dedupe). Deliberately NOT a whole-[LBChannel] comparison — `LBChannel`
- * carries many more fields (goods, nav, spec, watchNum, …) that have no bearing on this
- * projection; comparing the full model would re-fire on changes this event doesn't even
- * carry, while comparing nothing at all (always emitting) would spam the RN bridge on
- * every unrelated `onMomentStateChange` publish (subtitle CC toggle, viewer-count tick,
+ * §momentState dedupe; player-channel-chrome-fields-core-rn added
+ * shopName/shopLogo/shareUrl; channel-type-bridge-core-rn added type). Deliberately
+ * NOT a whole-[LBChannel] comparison — `LBChannel` carries many more fields (goods,
+ * nav, spec, watchNum, …) that have no bearing on this projection; comparing the full
+ * model would re-fire on changes this event doesn't even carry, while comparing
+ * nothing at all (always emitting) would spam the RN bridge on every unrelated
+ * `onMomentStateChange` publish (subtitle CC toggle, viewer-count tick,
  * chat-visibility flip, end-screen countdown tick, product-overlay updates, …) that
- * leaves these 8 fields unchanged.
+ * leaves these 12 fields unchanged.
  */
 private data class ChannelInfoSnapshot(
     val publishAt: String,
@@ -53,6 +55,17 @@ private data class ChannelInfoSnapshot(
     val serviceLink: String,
     val subtitleUrl: String,
     val isSubtitle: Int,
+    // player-channel-chrome-fields-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss a shop-name/logo/shareUrl-only change.
+    val shopName: String,
+    val shopLogo: String,
+    val shareUrl: String,
+    // channel-type-bridge-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss a type-only change (e.g. live -> finished-replay
+    // transition where liveStatus doesn't move).
+    val type: Int,
 ) {
     companion object {
         fun from(channel: LBChannel) = ChannelInfoSnapshot(
@@ -64,6 +77,10 @@ private data class ChannelInfoSnapshot(
             serviceLink = channel.shop.serviceLink,
             subtitleUrl = channel.subtitleUrl,
             isSubtitle = channel.isSubtitle,
+            shopName = channel.shop.name,
+            shopLogo = channel.shop.logo,
+            shareUrl = channel.shareUrl,
+            type = channel.type,
         )
     }
 }

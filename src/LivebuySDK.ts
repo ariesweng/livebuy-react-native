@@ -96,6 +96,29 @@ export interface LBConfigOptions {
    * never which endpoint).
    */
   environment?: LBEnvironment;
+  /**
+   * Global default for the player's top-right close-button behavior
+   * (`rn-player-direct-close-button`). Default `true` (current behavior:
+   * tapping the button closes the player directly, single tap, no
+   * intermediate step — `rn-player-direct-close-button-default-true`,
+   * a deliberate breaking UX change from the prior `false` default). Pass
+   * `false` to opt back into the two-step close (tapping the button
+   * collapses the player into the bottom-right floating card; the host then
+   * dismisses it via the floating card's own × button).
+   *
+   * **JS-only, NOT forwarded to the native bridge.** Unlike most
+   * `LBConfigOptions` flags, this one is never sent to
+   * `LivebuyRNBridge.configure(...)` — it only drives which button behavior
+   * RN's own `.tsx`-rendered reference-ui components render
+   * (`react-native-reference-ui`'s `PlayerHeaderBarView` /
+   * `CollapsibleLivebuyPlayer`), which native iOS/Android never sees or
+   * needs to know about. iOS/Android carry their own independent core flags
+   * for the same UX decision (`player-direct-close-button-core` /
+   * `android-player-direct-close-button-core`) — none of the four platforms'
+   * core changes depend on each other's choice. Read the current value via
+   * {@link LivebuySDK.isDirectCloseButtonEnabled}.
+   */
+  enableDirectCloseButton?: boolean;
 }
 
 /**
@@ -412,6 +435,26 @@ export type LBError =
 
 // MARK: - fetchLatestLive types
 
+/**
+ * Linked/featured product preview shown beneath a video thumbnail in a widget
+ * carousel card (`LBVideoItem.goods`, video-linked-goods-core-rn). Wire key
+ * `goods` on `/sdk/widget` / `/sdk/widget/live` — parity with iOS/Android
+ * native `LBFeaturedGood` struct/data-class (see `widget-decode-robustness`
+ * §goods 欄位容忍四型態 / §RN LBVideoItem.goods 完整欄位形狀與原生 bridge 序列化慣例).
+ * `name`/`pic`/`price`/`originalPrice` are raw-passthrough strings (already
+ * currency-formatted by the backend where applicable); `soldOut`/`stock`/
+ * `status` are raw Int flags — the SDK does not interpret their semantics.
+ */
+export interface LBFeaturedGood {
+  name: string;
+  pic: string;
+  price: string;
+  originalPrice: string;
+  soldOut: number;
+  stock: number;
+  status: number;
+}
+
 export interface LBVideoItem {
   id: string;
   type: number;
@@ -430,6 +473,47 @@ export interface LBVideoItem {
   playbackurl: string;
   previewTime: string;
   showStock: boolean;
+  /**
+   * Linked/featured product preview (video-linked-goods-core-rn). `undefined`
+   * when the video has no linked product — the native bridge OMITS this key
+   * rather than sending `null` (same "nullable field, key omitted" convention
+   * as `LBProduct.videoId`), so a legacy/older native binary that never sends
+   * this key reads `undefined` here, not a crash.
+   */
+  goods?: LBFeaturedGood;
+}
+
+/**
+ * Tolerantly re-shape a native-bridge `goods` value into `LBFeaturedGood |
+ * undefined` (video-linked-goods-core-rn). The native bridge OMITS the
+ * `goods` key entirely when the video has no linked product (see
+ * `serializeVideoItem`'s `LBProduct.videoId`-style omit-when-nil convention)
+ * — this function additionally tolerates an explicit `null` and any
+ * malformed/mistyped shape (older native binary, unexpected payload) by
+ * treating them the same as "no linked product" rather than throwing,
+ * mirroring the SDK-wide JSON-decoder-fallback tolerance invariant (CLAUDE.md
+ * §JSON decoder fallback) even though the true decode boundary here is the
+ * native bridge, not JSON. Exported for testing — parity with
+ * `mapPlayerChannelInfo` / `mapPlaybackProgress` (the native bridge
+ * `.swift`/`.kt` does not compile in this repo, so this pure mapper is the
+ * acceptance gate for the wire → host shape).
+ */
+export function mapFeaturedGood(wire: unknown): LBFeaturedGood | undefined {
+  if (wire == null || typeof wire !== 'object') return undefined;
+  const w = wire as Record<string, unknown>;
+  const { name, pic, price, originalPrice, soldOut, stock, status } = w;
+  if (
+    typeof name !== 'string' ||
+    typeof pic !== 'string' ||
+    typeof price !== 'string' ||
+    typeof originalPrice !== 'string' ||
+    typeof soldOut !== 'number' ||
+    typeof stock !== 'number' ||
+    typeof status !== 'number'
+  ) {
+    return undefined;
+  }
+  return { name, pic, price, originalPrice, soldOut, stock, status };
 }
 
 // MARK: - Player channel info (upcoming-intro-core-rn — channel 轉發 bridge)
@@ -511,6 +595,31 @@ export interface LBPlayerChannelInfo {
    * `liveStatus`, this field has no "unknown" tri-state need).
    */
   isSubtitle: number;
+  /**
+   * Shop display name (`channel.shop.name`). `""` when absent. Feeds the
+   * player header chrome's title (parity with iOS/Android view-model layer's
+   * `ingestChannel` auto-feed — RN has no such automatic path, hence this
+   * bridge projection — player-channel-chrome-fields-core-rn).
+   */
+  shopName: string;
+  /**
+   * Shop logo URL (`channel.shop.logo`). `""` when absent. Feeds the player
+   * header chrome's avatar (player-channel-chrome-fields-core-rn).
+   */
+  shopLogo: string;
+  /**
+   * Share URL for the channel (`channel.shareUrl`). `""` when absent. Feeds
+   * the player header chrome's share action (player-channel-chrome-fields-core-rn).
+   */
+  shareUrl: string;
+  /**
+   * Channel type (`channel.type`): `1` = VOD, `2` = live (upcoming + in-progress),
+   * `3` = finished-live replay. `-1` = unknown (the field was absent on the wire).
+   * Feeds `isFinishedLiveReplay(type, liveStatus)` (from `livebuy-react-native-ui`)
+   * downstream — this field alone carries no rendering meaning
+   * (channel-type-bridge-core-rn).
+   */
+  type: number;
 }
 
 /**
@@ -521,7 +630,7 @@ export interface LBPlayerChannelInfo {
  *
  * Wire contract (raw passthrough, SDK does not interpret):
  *   - string fields (`publish_at` / `cover` / `start` / `title` / `service_link` /
- *     `subtitle_url`): missing / null → `""`.
+ *     `subtitle_url` / `shop_name` / `shop_logo` / `share_url`): missing / null → `""`.
  *   - `live_status`: Number OR a stringified Int is tolerated; missing → `-1` (unknown).
  *   - `is_subtitle`: Number OR a stringified Int is tolerated; missing / unparseable →
  *     `0` (no subtitle) — see {@link coerceIsSubtitle}.
@@ -535,6 +644,10 @@ export function mapPlayerChannelInfo(wire: {
   service_link?: string | null;
   subtitle_url?: string | null;
   is_subtitle?: number | string | null;
+  shop_name?: string | null;
+  shop_logo?: string | null;
+  share_url?: string | null;
+  type?: number | string | null;
 }): LBPlayerChannelInfo {
   return {
     publishAt: wire.publish_at ?? '',
@@ -545,6 +658,10 @@ export function mapPlayerChannelInfo(wire: {
     serviceLink: wire.service_link ?? '',
     subtitleUrl: wire.subtitle_url ?? '',
     isSubtitle: coerceIsSubtitle(wire.is_subtitle),
+    shopName: wire.shop_name ?? '',
+    shopLogo: wire.shop_logo ?? '',
+    shareUrl: wire.share_url ?? '',
+    type: coerceChannelType(wire.type),
   };
 }
 
@@ -575,6 +692,22 @@ function coerceIsSubtitle(value: number | string | null | undefined): number {
     return Number.isNaN(n) ? 0 : n;
   }
   return 0;
+}
+
+/**
+ * Coerce a wire `type` to a number. Absent / unparseable → `-1` (unknown).
+ * Tolerates a Number (native emit) OR a stringified Int (defensive). Mirrors
+ * `coerceLiveStatus`'s shape, but kept as an independent function — `type` and
+ * `live_status` are separate wire fields with independent semantics
+ * (channel-type-bridge-core-rn), not a shared coerce implementation.
+ */
+function coerceChannelType(value: number | string | null | undefined): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number.parseInt(value, 10);
+    return Number.isNaN(n) ? -1 : n;
+  }
+  return -1;
 }
 
 // MARK: - VOD playback progress (rn-vod-playback-progress-core)
@@ -884,6 +1017,21 @@ export type LBPowerProfile = 'full' | 'reduced' | 'conservative' | 'survival';
 
 // MARK: - Public API
 
+/**
+ * rn-player-direct-close-button — JS-only module state for
+ * `LBConfigOptions.enableDirectCloseButton`. Deliberately NOT forwarded to
+ * `LivebuyRNBridge.configure(...)`: the native SDK never renders RN's own
+ * `.tsx` reference-ui, so there is nothing for it to consume. Written by
+ * `configure()`, read synchronously by `isDirectCloseButtonEnabled()`.
+ * Every `configure()` call re-derives this from `options.enableDirectCloseButton
+ * ?? true` (default flipped `false` → `true` by
+ * `rn-player-direct-close-button-default-true`), so a later call always wins
+ * over an earlier one (no separate `_resetForTesting` hook needed — tests
+ * call `configure()` fresh each time). The initial value below (before any
+ * `configure()` call) is kept in sync with that same default.
+ */
+let directCloseButtonEnabled = true;
+
 const LivebuySDK = {
   /**
    * Initialize the SDK. Now returns a Promise — under the hood the native
@@ -894,6 +1042,10 @@ const LivebuySDK = {
    * default value.
    */
   configure(options: LBConfigOptions): Promise<void> {
+    // rn-player-direct-close-button: JS-only state, deliberately NOT included
+    // in the LivebuyRNBridge.configure(...) positional-argument list below —
+    // see the module-level `directCloseButtonEnabled` doc comment for why.
+    directCloseButtonEnabled = options.enableDirectCloseButton ?? true;
     return LivebuyRNBridge.configure(
       options.apiKey,
       options.secret,
@@ -923,6 +1075,25 @@ const LivebuySDK = {
       // endpoint; RN never resolves a URL itself.
       options.environment ?? 'production',
     );
+  },
+
+  /**
+   * Synchronous read of the current `enableDirectCloseButton` global default
+   * (`rn-player-direct-close-button`), most recently set by {@link configure}
+   * (default `true` — including before `configure()` has ever been called;
+   * flipped from `false` by `rn-player-direct-close-button-default-true`).
+   *
+   * **JS-only — never calls the native bridge.** The value lives entirely in
+   * this module's memory; there is no native-side state to query, so unlike
+   * {@link getSdkConfig} / {@link currentPowerProfile} / {@link currentFbc}
+   * this resolves synchronously rather than returning a `Promise`.
+   *
+   * Intended consumer: `react-native-reference-ui`'s player-header component
+   * reads this to decide whether the top-right button collapses the player
+   * (`false`) or closes it directly (`true`).
+   */
+  isDirectCloseButtonEnabled(): boolean {
+    return directCloseButtonEnabled;
   },
 
   /**
@@ -1153,9 +1324,22 @@ const LivebuySDK = {
    * `ty` only for specific other needs. Returns the live item when one exists, or
    * `null` when `data.video` is null. Rejects with `NOT_CONFIGURED` if [configure]
    * has not yet resolved.
+   *
+   * video-linked-goods-core-rn: the resolved item's `goods` sub-field is
+   * tolerantly re-shaped via {@link mapFeaturedGood} (missing / `null` /
+   * malformed → `undefined`, never throws); every other field is forwarded
+   * as-is. The native call is wrapped in `Promise.resolve(...)` (rather than
+   * calling `.then` directly on its return value) so a bare mock/stub that
+   * synchronously returns `undefined` — as pre-existing tests do — still
+   * resolves safely instead of throwing on `undefined.then`.
    */
   fetchLatestLive(id: string, ty?: string): Promise<LBVideoItem | null> {
-    return LivebuyRNBridge.fetchLatestLive(id, ty ?? null);
+    return Promise.resolve(LivebuyRNBridge.fetchLatestLive(id, ty ?? null)).then(
+      (item: LBVideoItem | null) =>
+        item == null
+          ? null
+          : { ...item, goods: mapFeaturedGood((item as unknown as { goods?: unknown }).goods) },
+    );
   },
 
   /**
