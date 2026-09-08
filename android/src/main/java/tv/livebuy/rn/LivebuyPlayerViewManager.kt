@@ -66,6 +66,11 @@ private data class ChannelInfoSnapshot(
     // dedupe path would miss a type-only change (e.g. live -> finished-replay
     // transition where liveStatus doesn't move).
     val type: Int,
+    // channel-shop-intro-bridge-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss a shopIntro-only change (e.g. a merchant editing
+    // their shop intro text mid-LIVE while liveStatus/type stay unchanged).
+    val shopIntro: String,
 ) {
     companion object {
         fun from(channel: LBChannel) = ChannelInfoSnapshot(
@@ -81,6 +86,7 @@ private data class ChannelInfoSnapshot(
             shopLogo = channel.shop.logo,
             shareUrl = channel.shareUrl,
             type = channel.type,
+            shopIntro = channel.shop.intro,
         )
     }
 }

@@ -895,6 +895,9 @@ final class LivebuyRNBridge: RCTEventEmitter {
             "shop_name": channel.shop.name,
             "shop_logo": channel.shop.logo,
             "share_url": channel.shareUrl,
+            // channel-shop-intro-bridge-core-rn — additive. Feeds the player's
+            // shop-intro text block; raw passthrough, not interpreted here.
+            "shop_intro": channel.shop.intro,
         ])
     }
 
@@ -1027,6 +1030,11 @@ private struct ChannelInfoSnapshot: Equatable {
     // dedupe path would miss a type-only change (e.g. live -> finished-replay
     // transition where liveStatus doesn't move).
     let type: Int
+    // channel-shop-intro-bridge-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss a shopIntro-only change (e.g. a merchant editing
+    // their shop intro text mid-LIVE while liveStatus/type stay unchanged).
+    let shopIntro: String
 
     init(_ channel: LBChannel) {
         publishAt = channel.publishAt
@@ -1041,6 +1049,7 @@ private struct ChannelInfoSnapshot: Equatable {
         shopLogo = channel.shop.logo
         shareUrl = channel.shareUrl
         type = channel.type
+        shopIntro = channel.shop.intro
     }
 }
 

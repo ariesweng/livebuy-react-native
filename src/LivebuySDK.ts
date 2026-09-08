@@ -620,6 +620,13 @@ export interface LBPlayerChannelInfo {
    * (channel-type-bridge-core-rn).
    */
   type: number;
+  /**
+   * Shop introduction text (`channel.shop.intro`). `""` when absent. Feeds the
+   * player's shop-intro text block (parity with iOS/Android view-model layer's
+   * `ingestChannel` auto-feed — RN has no such automatic path, hence this
+   * bridge projection — channel-shop-intro-bridge-core-rn).
+   */
+  shopIntro: string;
 }
 
 /**
@@ -630,7 +637,8 @@ export interface LBPlayerChannelInfo {
  *
  * Wire contract (raw passthrough, SDK does not interpret):
  *   - string fields (`publish_at` / `cover` / `start` / `title` / `service_link` /
- *     `subtitle_url` / `shop_name` / `shop_logo` / `share_url`): missing / null → `""`.
+ *     `subtitle_url` / `shop_name` / `shop_logo` / `share_url` / `shop_intro`):
+ *     missing / null → `""`.
  *   - `live_status`: Number OR a stringified Int is tolerated; missing → `-1` (unknown).
  *   - `is_subtitle`: Number OR a stringified Int is tolerated; missing / unparseable →
  *     `0` (no subtitle) — see {@link coerceIsSubtitle}.
@@ -648,6 +656,7 @@ export function mapPlayerChannelInfo(wire: {
   shop_logo?: string | null;
   share_url?: string | null;
   type?: number | string | null;
+  shop_intro?: string | null;
 }): LBPlayerChannelInfo {
   return {
     publishAt: wire.publish_at ?? '',
@@ -662,6 +671,7 @@ export function mapPlayerChannelInfo(wire: {
     shopLogo: wire.shop_logo ?? '',
     shareUrl: wire.share_url ?? '',
     type: coerceChannelType(wire.type),
+    shopIntro: wire.shop_intro ?? '',
   };
 }
 

@@ -1050,6 +1050,9 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             putString("shop_name", channel.shop.name)
             putString("shop_logo", channel.shop.logo)
             putString("share_url", channel.shareUrl)
+            // channel-shop-intro-bridge-core-rn — additive. Feeds the player's
+            // shop-intro text block; raw passthrough, not interpreted here.
+            putString("shop_intro", channel.shop.intro)
         }
         emit("LBPlayerChannelInfo", map)
     }
