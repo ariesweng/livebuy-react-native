@@ -7,6 +7,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.module.annotations.ReactModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
@@ -28,8 +29,10 @@ import tv.livebuy.sdk.events.LBShareContext
 import tv.livebuy.sdk.events.LivebuyEventListener
 import tv.livebuy.sdk.models.LBChannel
 import tv.livebuy.sdk.models.LBCheckoutItem
+import tv.livebuy.sdk.models.LBComment
 import tv.livebuy.sdk.models.LBError
 import tv.livebuy.sdk.models.LBFeaturedGood
+import tv.livebuy.sdk.models.LBNavItem
 import tv.livebuy.sdk.models.LBPlaybackProgress
 import tv.livebuy.sdk.models.LBPlayerState
 import tv.livebuy.sdk.models.LBPollResponse
@@ -43,6 +46,11 @@ import tv.livebuy.sdk.player.LivebuyPlayerView
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+// @ReactModule is required by newer com.facebook.react:react-android versions' by-class
+// getNativeModule(Class) lookup (used by LivebuyPlayerViewManager.createViewInstance()) — without
+// it, getNativeModule(LivebuyRNModule::class.java) throws "Could not find @ReactModule annotation"
+// at the reflection step that resolves this module's registered name. name must match getName().
+@ReactModule(name = "LivebuyRNBridge")
 internal class LivebuyRNModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
@@ -463,6 +471,35 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 arr.pushMap(paramsToMap(LivebuyPlayerView.activeEventParams(event)))
             }
             promise.resolve(arr)
+        }
+    }
+
+    // MARK: - isMuted accessor (mute-preference-persist-across-session-rn-core)
+    //
+    // View-scoped Promise accessor: current actual mute state of the player
+    // addressed by `reactTag`, mirroring iOS/Android core's public read-only
+    // `isMuted` getter (mute-preference-persist-across-session-{ios,android}-core).
+    // Same resolution shape as `activeEvents` above (UIManagerModule.addUIBlock +
+    // NativeViewHierarchyManager.resolveView). Unlike iOS — where the wrapped
+    // player controller is only created on `load()` — Android's RN native view
+    // IS `LivebuyPlayerView` itself, so `isMuted` already reflects the
+    // MutePreferenceStore-seeded value from construction, before `load()` too.
+    // View gone / wrong type all resolve `false` — a READ, not a WRITE, so there
+    // is nothing actionable a caller could do differently between those cases.
+    @ReactMethod
+    fun isMuted(reactTag: Int, promise: Promise) {
+        val uiManager = reactContext.getNativeModule(UIManagerModule::class.java)
+        if (uiManager == null) {
+            promise.resolve(false)
+            return
+        }
+        uiManager.addUIBlock { nvhm ->
+            val view = try {
+                nvhm.resolveView(reactTag) as? LivebuyPlayerView
+            } catch (t: Throwable) {
+                null
+            }
+            promise.resolve(view?.isMuted ?: false)
         }
     }
 
@@ -1030,7 +1067,19 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
     // (`LivebuyPlayerViewManager.kt`'s `view.onChannelRefresh = { … }`) was
     // already fixed to bind core's current callback name in archived change
     // 2026-07-11-rn-android-bridge-drift-fix-core — no wiring change needed here.
-    fun emitChannelChange(channel: LBChannel) {
+    // rn-moment-products-bridge-core: `products`/`narratingProduct` are the only two of the 16
+    // projected fields whose data source is NOT `channel` — they read off the `onMomentStateChange`
+    // callback's own `LBPlayerMomentState` argument (see `LivebuyPlayerViewManager.kt`'s wiring).
+    // Defaulted here (empty/null) so the `onChannelRefresh` call site — which has no moment-state
+    // data available (its callback signature is `(LBChannel) -> Unit` only) — can be omitted
+    // without losing type-safety, but callers SHOULD pass the caller's own last-known
+    // products/narratingProduct (see `LivebuyPlayerViewManager.kt`) rather than relying on this
+    // default, to avoid a transient empty flash on every LIVE 20s settings refresh.
+    fun emitChannelChange(
+        channel: LBChannel,
+        products: List<LBProduct> = emptyList(),
+        narratingProduct: LBProduct? = null,
+    ) {
         val map = WritableNativeMap().apply {
             putString("publish_at", channel.publishAt)
             putString("cover", channel.cover)
@@ -1053,9 +1102,57 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             // channel-shop-intro-bridge-core-rn — additive. Feeds the player's
             // shop-intro text block; raw passthrough, not interpreted here.
             putString("shop_intro", channel.shop.intro)
+            // channel-flash-sale-flag-core-rn — additive. Top-level `LBChannel`
+            // field (NOT nested under `channel.shop`, unlike `shop_intro` above)
+            // — `= upstream sale_type==2`, always present, independent of
+            // `type`/`live_status`; raw passthrough, not interpreted here.
+            putBoolean("is_flash_sale", channel.isFlashSale)
+            // rn-guest-comment-channel-bridge-core — additive. Guest-comment send gate
+            // (`0`/`1`, REVERSE semantics: 0 = restricted to logged-in members). Raw
+            // passthrough of `channel.guestComment`; feeds `chatEnabled`/`guestEditAvailable`
+            // derivation downstream (template layer), not derived here. Mirrors iOS/Android
+            // core's own synchronous `chatEnabled` derivation (`OperationPanelView`), which
+            // RN has no equivalent automatic path for.
+            putInt("guest_comment", channel.guestComment)
+            // rn-moment-products-bridge-core — additive. Live-updating (moment-state-sourced,
+            // NOT channel-sourced) products list + single narrating (`narrate_status == 2`)
+            // representative product, reusing the existing product bridge wire shape.
+            putArray("products", productsArray(products))
+            if (narratingProduct != null) putMap("narrating_product", productToMap(narratingProduct))
+            // rn-endscreen-next-bridge-core — additive. Next-video navigation entries
+            // (`channel.next[]`), feeding the EndScreen 「倒數播放下一支」variant. Unlike
+            // `products`/`narratingProduct` above, this IS channel-sourced (same as the other
+            // 14 fields) — `channel.hot[]`/`channel.prev[]` are deliberately NOT forwarded here
+            // (no consumer; EndScreen no longer uses `hot[]`).
+            putArray("next", navItemsArray(channel.next))
+            // rn-channel-notice-bridge-core — additive. Channel announcement text, read from
+            // TOP-LEVEL channel.notice/channel.sysNotice (NOT channel.shop). Raw passthrough, not
+            // interpreted here. Reaches the host at channel-load time via this event, rather than
+            // only via the delayed POLL_RECEIVED path (which needs PollManager running).
+            putString("notice", channel.notice)
+            putString("sys_notice", channel.sysNotice)
         }
         emit("LBPlayerChannelInfo", map)
     }
+
+    // rn-endscreen-next-bridge-core — array-of-nav-item serialization for the EndScreen
+    // 「倒數播放下一支」variant's `next` wire key. Mirrors `specArray`/`specOptionArray` above;
+    // only the EndScreen-consumed subset (`id`/`cover`/`title`/`duration`/`shop_name`) is
+    // forwarded — `LBNavItem.preview` (short preview-loop URL) is NOT forwarded (no consumer
+    // for it in this change). `title` is `String?` on `LBNavItem` — `putNull` when absent,
+    // preserving the optional semantics rather than a synthetic `""` default.
+    private fun navItemsArray(items: List<LBNavItem>): WritableNativeArray =
+        WritableNativeArray().apply {
+            items.forEach { item ->
+                pushMap(WritableNativeMap().apply {
+                    putString("id", item.id)
+                    putString("cover", item.cover)
+                    if (item.title != null) putString("title", item.title) else putNull("title")
+                    putInt("duration", item.duration)
+                    putString("shop_name", item.shopName)
+                })
+            }
+        }
 
     // rn-vod-playback-progress-core — dedicated VOD playback-progress channel
     // forward (HAND-ALIGNED; this RN native bridge is NOT compiled in this
@@ -1083,6 +1180,36 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             putArray("products", productsArray(products))
         }
         emit("LBPlaybackProgressChange", map)
+    }
+
+    // fix-rn-replay-chat-progressive-reveal-core — dedicated progressive replay-chat-reveal
+    // channel forward, SAME shape/precedent as `emitPlaybackProgressChange` above (bypasses the
+    // unified event-emitter path — core's `onReplayChatRevealed` is a standalone public
+    // notification seam, parity iOS `Player.onReplayChatRevealed`). Distinct from
+    // `CHAT_HISTORY_LOADED` (one-shot, full video's comments, unrelated to playback position) —
+    // this fires PROGRESSIVELY as replay playback reveals the timeline, each call carrying the
+    // currently-revealed prefix ascending by `LBComment.time`. Wire keys mirror the SAME
+    // `text`/`name`/`color`/`reply`/`reply_color`/`time` shape `CHAT_HISTORY_LOADED` already uses,
+    // so RN JS's existing `decodeReplayChatComments` (react-native-ui) needs no changes.
+    private fun commentsArray(comments: List<LBComment>): WritableNativeArray =
+        WritableNativeArray().apply {
+            comments.forEach { c ->
+                pushMap(WritableNativeMap().apply {
+                    putString("text", c.text)
+                    putString("name", c.name)
+                    putString("color", c.color)
+                    putString("reply", c.reply)
+                    putString("reply_color", c.replyColor)
+                    putString("time", c.time)
+                })
+            }
+        }
+
+    fun emitReplayChatRevealed(comments: List<LBComment>) {
+        val map = WritableNativeMap().apply {
+            putArray("comments", commentsArray(comments))
+        }
+        emit("LBReplayChatRevealed", map)
     }
 
     fun emitError(error: LBError) {

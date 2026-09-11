@@ -210,6 +210,32 @@ final class LivebuyRNBridge: RCTEventEmitter {
         }
     }
 
+    // MARK: - isMuted accessor (mute-preference-persist-across-session-rn-core)
+    //
+    // View-scoped Promise accessor: current actual mute state of the player
+    // addressed by `reactTag`, mirroring iOS/Android core's public read-only
+    // `isMuted` getter (mute-preference-persist-across-session-{ios,android}-core).
+    // Lets host/template code query the REAL current state at Player attach time
+    // to seed its own mute icon, instead of hardcoding an unmuted default — closing
+    // the gap the core-side getters exist to fix but this bridge did not yet expose.
+    // Same shape as `activeEvents` above (READ, not WRITE): view gone / wrong type /
+    // no core player created yet (load() not called) all resolve `false` — a
+    // truthful "nothing indicates it is muted" rather than reject, since there is
+    // nothing actionable a caller could do differently on any of those three cases.
+    @objc func isMuted(
+        _ reactTag: NSNumber,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.main.async {
+            guard let view = self.bridge?.uiManager?.view(forReactTag: reactTag) as? LivebuyPlayerRNView else {
+                resolve(false)
+                return
+            }
+            resolve(view.isMuted())
+        }
+    }
+
     // MARK: - setGuestNicknameVerified bridge (guest-nickname-checkname-on-set-rn
     //         + guest-nickname-verified-fails-loudly-rn)
     //
@@ -844,6 +870,24 @@ final class LivebuyRNBridge: RCTEventEmitter {
         ]
     }
 
+    /// Serialize an `LBNavItem` to a snake_case bridge map (rn-endscreen-next-bridge-core).
+    /// Mirrors `emitChannelChange`'s snake_case style for `channel.next[]`'s
+    /// EndScreen-consumed subset — `id`/`cover`/`title`/`duration`/`shop_name` only;
+    /// `preview` (short preview-loop URL) is deliberately NOT forwarded (no consumer
+    /// for it in this change). `title` is `String?` on `LBNavItem` (nil in `prev[]`,
+    /// non-nil in `next[]` per LBModels.swift) — passed through as `NSNull()` when nil
+    /// rather than a synthetic `""` default, so a title-less entry (should it ever
+    /// occur) stays distinguishable from "not yet loaded" on the JS side.
+    private func lbNavItemToBody(_ item: LBNavItem) -> [String: Any] {
+        [
+            "id": item.id,
+            "cover": item.cover,
+            "title": item.title ?? NSNull(),
+            "duration": item.duration,
+            "shop_name": item.shopName,
+        ]
+    }
+
     func emitPollReceived(_ response: LBPollResponse) {
         var body: [String: Any] = ["last": response.last]
         if let liveEnd = response.liveEnd { body["liveEnd"] = liveEnd }
@@ -874,8 +918,15 @@ final class LivebuyRNBridge: RCTEventEmitter {
     // below) to bind core's current `onChannelRefresh` — it previously bound a
     // callback name (`onChannelChange`) that never existed on
     // `LivebuyPlayerViewController`, so this whole event never fired on iOS RN.
-    func emitChannelChange(_ channel: LBChannel) {
-        sendEvent(withName: "LBPlayerChannelInfo", body: [
+    // rn-moment-products-bridge-core: `products`/`narratingProduct` are the only two of the 16
+    // projected fields whose data source is NOT `channel` — they read off the `onMomentStateChange`
+    // callback's own `LBPlayerMomentState` argument (see `load(videoId:)` below). Defaulted here
+    // (empty/nil) so the `onChannelRefresh` call site — which has no moment-state data available
+    // — can be omitted without losing type-safety, but callers SHOULD pass the caller's own
+    // last-known products/narratingProduct rather than relying on this default, to avoid a
+    // transient empty flash on every LIVE 20s settings refresh.
+    func emitChannelChange(_ channel: LBChannel, products: [LBProduct] = [], narratingProduct: LBProduct? = nil) {
+        var body: [String: Any] = [
             "publish_at": channel.publishAt,
             "cover": channel.cover,
             "start": channel.start,
@@ -898,7 +949,38 @@ final class LivebuyRNBridge: RCTEventEmitter {
             // channel-shop-intro-bridge-core-rn — additive. Feeds the player's
             // shop-intro text block; raw passthrough, not interpreted here.
             "shop_intro": channel.shop.intro,
-        ])
+            // channel-flash-sale-flag-core-rn — additive. Top-level `LBChannel`
+            // field (NOT nested under `channel.shop`, unlike `shop_intro` above)
+            // — `= upstream sale_type==2`, always present, independent of
+            // `type`/`live_status`; raw passthrough, not interpreted here.
+            "is_flash_sale": channel.isFlashSale,
+            // rn-guest-comment-channel-bridge-core — additive. Guest-comment send gate
+            // (`0`/`1`, REVERSE semantics: 0 = restricted to logged-in members). Raw
+            // passthrough of `channel.guestComment`; feeds `chatEnabled`/`guestEditAvailable`
+            // derivation downstream (template layer), not derived here. Mirrors iOS/Android
+            // core's own synchronous `chatEnabled` derivation (`OperationPanelView`), which
+            // RN has no equivalent automatic path for.
+            "guest_comment": channel.guestComment,
+            // rn-moment-products-bridge-core — additive. Live-updating (moment-state-sourced,
+            // NOT channel-sourced) products list, reusing the existing `lbProductToBody` wire shape.
+            "products": products.map { lbProductToBody($0) },
+            // rn-endscreen-next-bridge-core — additive. Next-video navigation entries
+            // (`channel.next[]`), feeding the EndScreen 「倒數播放下一支」variant. Unlike
+            // `products`/`narratingProduct` above, this IS channel-sourced (same as the other
+            // 14 fields) — `channel.hot[]`/`channel.prev[]` are deliberately NOT forwarded here
+            // (no consumer; EndScreen no longer uses `hot[]`).
+            "next": channel.next.map { lbNavItemToBody($0) },
+            // rn-channel-notice-bridge-core — additive. Channel announcement text, read from
+            // TOP-LEVEL `channel.notice`/`channel.sysNotice` (NOT `channel.shop`). Raw passthrough,
+            // not interpreted here. Reaches the host at channel-load time via this event, rather
+            // than only via the delayed POLL_RECEIVED path (which needs PollManager running).
+            "notice": channel.notice,
+            "sys_notice": channel.sysNotice,
+        ]
+        if let narratingProduct = narratingProduct {
+            body["narrating_product"] = lbProductToBody(narratingProduct)
+        }
+        sendEvent(withName: "LBPlayerChannelInfo", body: body)
     }
 
     // rn-vod-playback-progress-core — dedicated VOD playback-progress channel
@@ -923,6 +1005,29 @@ final class LivebuyRNBridge: RCTEventEmitter {
             "isPlaying": progress.isPlaying,
             "isReplay": progress.isReplay,
             "products": products.map { lbProductToBody($0) },
+        ])
+    }
+
+    // fix-rn-replay-chat-progressive-reveal-core — dedicated progressive replay-chat-reveal
+    // channel forward, SAME shape/precedent as `emitPlaybackProgressChange` above (bypasses the
+    // unified `onSdkEvent`/`LBEvent` enum — core's `onReplayChatRevealed` is a standalone public
+    // notification seam, "NOT routed through event-interceptor, NOT added to the LBEvent enum",
+    // per `LivebuyPlayerViewController.swift`'s own doc comment). Distinct from `CHAT_HISTORY_LOADED`
+    // (one-shot, full video's comments, unrelated to playback position) — this fires PROGRESSIVELY
+    // as replay playback reveals the timeline, each call carrying the currently-revealed prefix
+    // ascending by `LBComment.time`. Wire keys/shape mirror core's OWN
+    // `replayHistoryEventComments(from:)` (`LivebuyPlayerViewController.swift`) — the SAME
+    // `text`/`name`/`color`/`reply`/`reply_color`/`time` shape `CHAT_HISTORY_LOADED` already uses,
+    // so RN JS's existing `decodeReplayChatComments` (react-native-ui) needs no changes.
+    func emitReplayChatRevealed(_ comments: [LBComment]) {
+        sendEvent(withName: "LBReplayChatRevealed", body: [
+            "comments": comments.map {
+                [
+                    "text": $0.text, "name": $0.name, "color": $0.color,
+                    "reply": $0.reply, "reply_color": $0.replyColor,
+                    "time": $0.time,
+                ]
+            },
         ])
     }
 
@@ -1000,16 +1105,21 @@ private final class BridgeListener: NSObject, LivebuyEventListener {
 
 // MARK: - LivebuyPlayerRNView — UIView wrapping LivebuyPlayerViewController
 
-/// Narrow, `Equatable` snapshot of ONLY the 12 fields `LBPlayerChannelInfo` projects
+/// Narrow, `Equatable` snapshot of ONLY the 20 fields `LBPlayerChannelInfo` projects
 /// (rb-react-native-subtitle-channel-info-bridge-core §momentState dedupe;
 /// player-channel-chrome-fields-core-rn added shopName/shopLogo/shareUrl;
-/// channel-type-bridge-core-rn added type). Deliberately NOT a whole-`LBChannel`
-/// comparison — `LBChannel` carries many more fields (goods, nav, spec, watchNum, …)
-/// that have no bearing on this projection; comparing the full model would re-fire on
-/// changes this event doesn't even carry, while comparing nothing at all (always
-/// emitting) would spam the RN bridge on every unrelated `onMomentStateChange`
-/// publish (subtitle CC toggle, viewer-count tick, chat-visibility flip, end-screen
-/// countdown tick, product-overlay updates, …) that leaves these 12 fields unchanged.
+/// channel-type-bridge-core-rn added type; channel-shop-intro-bridge-core-rn added
+/// shopIntro; channel-flash-sale-flag-core-rn added isFlashSale;
+/// rn-guest-comment-channel-bridge-core added guestComment; rn-moment-products-bridge-core
+/// added products/narratingProduct; rn-endscreen-next-bridge-core added next;
+/// rn-channel-notice-bridge-core added notice/sysNotice). Deliberately NOT a
+/// whole-`LBChannel` comparison — `LBChannel` carries many more fields (goods, nav,
+/// spec, watchNum, …) that have no bearing on this projection; comparing the full
+/// model would re-fire on changes this event doesn't even carry, while comparing
+/// nothing at all (always emitting) would spam the RN bridge on every unrelated
+/// `onMomentStateChange` publish (subtitle CC toggle, viewer-count tick,
+/// chat-visibility flip, end-screen countdown tick, product-overlay updates, …) that
+/// leaves these 14 fields unchanged.
 private struct ChannelInfoSnapshot: Equatable {
     let publishAt: String
     let cover: String
@@ -1035,8 +1145,45 @@ private struct ChannelInfoSnapshot: Equatable {
     // dedupe path would miss a shopIntro-only change (e.g. a merchant editing
     // their shop intro text mid-LIVE while liveStatus/type stay unchanged).
     let shopIntro: String
+    // channel-flash-sale-flag-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss an isFlashSale-only change. In practice this field
+    // is expected constant within a session (backend guarantees it), but is
+    // still included here defensively, following the existing pattern for every
+    // other projected field.
+    let isFlashSale: Bool
+    // rn-guest-comment-channel-bridge-core — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange dedupe path
+    // would miss a guestComment-only change. UNLIKE isFlashSale's purely-theoretical
+    // defensive rationale, this IS a real, expected mid-LIVE trigger path: core's own
+    // channel-settings refresh comment elsewhere in this SDK explicitly documents
+    // "channel-settings refresh (問題4) updates channel.guestComment" — a merchant can
+    // toggle guest chat on/off from the backend mid-broadcast.
+    let guestComment: Int
+    // rn-moment-products-bridge-core — additive. UNLIKE every field above, these two are NOT
+    // derived from `channel` (`LBChannel` has no `products`/`narratingProduct` — only the
+    // load-time-static `channel.goods`) — they are sourced from the `onMomentStateChange`
+    // callback's own `LBPlayerMomentState` argument. Represented as `ProductFingerprint`
+    // (below), NOT raw `LBProduct`, because `LBProduct` is not `Equatable` (core SDK type,
+    // out of scope to extend here) — this struct's `Equatable` auto-synthesis needs every
+    // stored property to be `Equatable`.
+    let products: [ProductFingerprint]
+    let narratingProduct: ProductFingerprint?
+    // rn-endscreen-next-bridge-core — additive. UNLIKE `products`/`narratingProduct` above, `next`
+    // IS derived from `channel` (`channel.next`, same as every other field in this struct) — it is
+    // simply represented as `[NavItemFingerprint]` rather than raw `[LBNavItem]` because `LBNavItem`
+    // is not `Equatable` (see `NavItemFingerprint`'s doc comment above). Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the dedupe path would miss a next[]-only
+    // change while every other field stays unchanged.
+    let next: [NavItemFingerprint]
+    // rn-channel-notice-bridge-core — additive. Must stay in sync with LBPlayerChannelInfo's
+    // projected fields, otherwise the onMomentStateChange dedupe path would miss a
+    // notice/sysNotice-only change (e.g. a merchant editing the announcement text mid-LIVE while
+    // every other field stays unchanged). Read from the TOP-LEVEL `channel`, NOT `channel.shop`.
+    let notice: String
+    let sysNotice: String
 
-    init(_ channel: LBChannel) {
+    init(_ channel: LBChannel, products: [LBProduct] = [], narratingProduct: LBProduct? = nil) {
         publishAt = channel.publishAt
         cover = channel.cover
         start = channel.start
@@ -1050,6 +1197,63 @@ private struct ChannelInfoSnapshot: Equatable {
         shareUrl = channel.shareUrl
         type = channel.type
         shopIntro = channel.shop.intro
+        isFlashSale = channel.isFlashSale
+        guestComment = channel.guestComment
+        self.products = products.map(ProductFingerprint.init)
+        self.narratingProduct = narratingProduct.map(ProductFingerprint.init)
+        self.next = channel.next.map(NavItemFingerprint.init)
+        notice = channel.notice
+        sysNotice = channel.sysNotice
+    }
+}
+
+/// A comparison-relevant projection of `LBProduct` (rn-moment-products-bridge-core) — `LBProduct`
+/// itself is not `Equatable`, so `ChannelInfoSnapshot`'s dedupe compares products via this curated
+/// fingerprint instead of the full 20+ field set. Mirrors `ChannelInfoSnapshot`'s own existing
+/// pattern: a deliberately curated projection of a richer source type, not the whole thing. Fields
+/// chosen: `id` (identity) + exactly the ones `reference-ui-rendering`'s "RN LiveOverlayChrome"
+/// Requirement documents as actually consumed by the pinned-card / product-list UI (`name` /
+/// `priceShow` / tag derived from `narrateStatus` / `isHot` / `isOutSoon`), plus `soldOut` (drives
+/// the sold-out price-column label).
+private struct ProductFingerprint: Equatable {
+    let id: String
+    let name: String
+    let priceShow: String
+    let narrateStatus: Int
+    let isHot: Int
+    let isOutSoon: Int
+    let soldOut: Int
+
+    init(_ product: LBProduct) {
+        id = product.id
+        name = product.name
+        priceShow = product.priceShow
+        narrateStatus = product.narrateStatus
+        isHot = product.isHot
+        isOutSoon = product.isOutSoon
+        soldOut = product.soldOut
+    }
+}
+
+/// A comparison-relevant projection of `LBNavItem` (rn-endscreen-next-bridge-core) — `LBNavItem`
+/// itself is not `Equatable` (core SDK type, out of scope to extend here — same reasoning as
+/// `ProductFingerprint` above), so `ChannelInfoSnapshot`'s dedupe compares `next[]` via this
+/// curated fingerprint instead. Fields chosen are EXACTLY the subset `emitChannelChange` forwards
+/// (`id`/`cover`/`title`/`duration`/`shopName`) — `preview` is excluded, matching the wire
+/// projection (mirrors `ProductFingerprint`'s existing pattern of a curated, not full, copy).
+private struct NavItemFingerprint: Equatable {
+    let id: String
+    let cover: String
+    let title: String?
+    let duration: Int
+    let shopName: String
+
+    init(_ item: LBNavItem) {
+        id = item.id
+        cover = item.cover
+        title = item.title
+        duration = item.duration
+        shopName = item.shopName
     }
 }
 
@@ -1063,6 +1267,17 @@ final class LivebuyPlayerRNView: UIView {
     // legitimate — e.g. re-opening the same VOD) is NOT silently swallowed by a stale
     // pre-unload snapshot.
     private var lastChannelInfoSnapshot: ChannelInfoSnapshot?
+    // rn-moment-products-bridge-core — the REAL (non-fingerprint) last-known products /
+    // narratingProduct, tracked SEPARATELY from `lastChannelInfoSnapshot` (which only holds the
+    // lossy `ProductFingerprint` projection needed for `Equatable` dedup — `LBProduct` itself is
+    // not `Equatable`). `onChannelRefresh` (below) has no moment-state data of its own and needs
+    // to re-emit the FULL, real product objects it last saw, not a reconstruction from the
+    // fingerprint's 7 fields (which would silently null out `pic`/`photos`/`price`/etc.). Updated
+    // on every `onMomentStateChange` firing (regardless of whether the dedup snapshot changed —
+    // this tracks ground truth; only EMISSION is gated by the dedup check). Reset alongside
+    // `lastChannelInfoSnapshot`.
+    private var lastKnownProducts: [LBProduct] = []
+    private var lastKnownNarratingProduct: LBProduct?
 
     func load(videoId: String) {
         // VC is created lazily: the React tag (and therefore stable view identity) isn't known at UIView init time.
@@ -1099,8 +1314,18 @@ final class LivebuyPlayerRNView: UIView {
             // `onMomentStateChange` path below does NOT reach this call site
             // (`applyRefreshedChannel` does not call `publishMomentState()`).
             vc.onChannelRefresh = { [weak self] channel in
-                self?.lastChannelInfoSnapshot = ChannelInfoSnapshot(channel)
-                LivebuyRNBridge.shared?.emitChannelChange(channel)
+                // rn-moment-products-bridge-core — this hook has NO moment-state data of its own
+                // (`(LBChannel) -> Void` signature), so it carries over the LAST known
+                // products/narratingProduct (the REAL objects, tracked in `lastKnownProducts` /
+                // `lastKnownNarratingProduct` — NOT reconstructed from the lossy
+                // `ChannelInfoSnapshot` fingerprint) rather than resetting to empty — avoids a
+                // transient empty flash on every LIVE 20s settings refresh (onMomentStateChange
+                // already fired at least once by the time this can fire, since it fires
+                // unconditionally on every channel load).
+                let products = self?.lastKnownProducts ?? []
+                let narratingProduct = self?.lastKnownNarratingProduct
+                self?.lastChannelInfoSnapshot = ChannelInfoSnapshot(channel, products: products, narratingProduct: narratingProduct)
+                LivebuyRNBridge.shared?.emitChannelChange(channel, products: products, narratingProduct: narratingProduct)
             }
             // rb-react-native-subtitle-channel-info-bridge-core — additive coverage
             // for VOD / upcoming / initial-load channel-info emission, closing the
@@ -1125,12 +1350,20 @@ final class LivebuyPlayerRNView: UIView {
             // The dedupe key deliberately does NOT use video id alone: an
             // upcoming→live `liveStatus` flip (30s preview poll) keeps the same id
             // but IS a real change this event must still carry.
-            vc.onMomentStateChange = { [weak self, weak vc] _ in
+            vc.onMomentStateChange = { [weak self, weak vc] state in
                 guard let self = self, let vc = vc, let ch = vc.channel else { return }
-                let snapshot = ChannelInfoSnapshot(ch)
+                // rn-moment-products-bridge-core — `products`/`narratingProduct` read off THIS
+                // callback's own `state` argument (LBPlayerMomentState), NOT `ch`/`vc.channel`
+                // (LBChannel has no such fields — only the load-time-static `channel.goods`).
+                // `lastKnownProducts`/`lastKnownNarratingProduct` track ground truth on EVERY
+                // firing (independent of the dedup gate below), so `onChannelRefresh` always has
+                // the freshest real product objects to carry forward.
+                self.lastKnownProducts = state.products
+                self.lastKnownNarratingProduct = state.narratingProduct
+                let snapshot = ChannelInfoSnapshot(ch, products: state.products, narratingProduct: state.narratingProduct)
                 guard snapshot != self.lastChannelInfoSnapshot else { return }
                 self.lastChannelInfoSnapshot = snapshot
-                LivebuyRNBridge.shared?.emitChannelChange(ch)
+                LivebuyRNBridge.shared?.emitChannelChange(ch, products: state.products, narratingProduct: state.narratingProduct)
             }
             // rn-vod-playback-progress-core — channel-info forward (HAND-
             // ALIGNED; not compiled here). Mirrors the other VC callbacks;
@@ -1145,6 +1378,13 @@ final class LivebuyPlayerRNView: UIView {
             // `vodActiveProducts(products:position:)` reads.
             vc.onPlaybackProgressChange = { [weak self, weak vc] progress in
                 LivebuyRNBridge.shared?.emitPlaybackProgressChange(progress, products: vc?.channel?.goods ?? [])
+            }
+            // fix-rn-replay-chat-progressive-reveal-core — per-view wiring for the progressive
+            // replay-chat-reveal seam, same "module-level singleton emits" precedent as
+            // `onPlaybackProgressChange` above (events flow through the module, not the view,
+            // because JS sets up `NativeEventEmitter(NativeModules.LivebuyRNBridge)`).
+            vc.onReplayChatRevealed = { [weak self] comments in
+                LivebuyRNBridge.shared?.emitReplayChatRevealed(comments)
             }
             playerVC = vc
             addSubview(vc.view)
@@ -1170,6 +1410,11 @@ final class LivebuyPlayerRNView: UIView {
         // onMomentStateChange dedupe so a later reload of the byte-identical
         // channel is not silently swallowed by a stale pre-teardown snapshot.
         lastChannelInfoSnapshot = nil
+        // rn-moment-products-bridge-core — reset alongside, so a later onChannelRefresh
+        // (before the next onMomentStateChange) does not carry forward a torn-down session's
+        // stale products.
+        lastKnownProducts = []
+        lastKnownNarratingProduct = nil
     }
 
     func play()                    { playerVC?.play() }
@@ -1197,6 +1442,9 @@ final class LivebuyPlayerRNView: UIView {
         // this SAME view reusing the same channel content must not be swallowed by
         // a stale pre-unload snapshot.
         lastChannelInfoSnapshot = nil
+        // rn-moment-products-bridge-core — reset alongside, same rationale.
+        lastKnownProducts = []
+        lastKnownNarratingProduct = nil
     }
     func skipStart()                                     { playerVC?.skipStart() }
     func cancelAutoNext()                                { playerVC?.cancelAutoNext() }
@@ -1218,6 +1466,11 @@ final class LivebuyPlayerRNView: UIView {
     // live events (直播抽獎「進行中活動」). Delegates to the wrapped VC's public
     // accessor; nil VC (not yet loaded) → empty snapshot.
     func activeEvents() -> [LBActiveEvent]                { playerVC?.activeEvents() ?? [] }
+
+    // mute-preference-persist-across-session-rn-core: read-only current mute
+    // state of the wrapped VC's `isMuted` getter. nil VC (not yet loaded) →
+    // `false`, matching the SDK's documented unmuted default.
+    func isMuted() -> Bool                                { playerVC?.isMuted ?? false }
 
     // guest-nickname-checkname-on-set-rn: checkName-gated verified nickname set.
     // Delegates to the wrapped VC's public `setGuestNicknameVerified`.

@@ -29,6 +29,7 @@ import type {
   LBPlaybackProgress,
 } from './LivebuySDK';
 import { mapPlayerChannelInfo, mapPlaybackProgress } from './LivebuySDK';
+import type { LBReplayChatComment } from './LivebuyEvents';
 
 // MARK: - LivebuyPlayerCore (headless RN bridge)
 //
@@ -253,6 +254,29 @@ export interface LivebuyPlayerCoreRef {
    */
   activeEvents(): Promise<LBActiveEvent[]>;
   /**
+   * Current actual mute state of the wrapped native Player
+   * (mute-preference-persist-across-session-rn-core), mirroring iOS/Android
+   * core's public read-only `isMuted` getter (iOS
+   * `LivebuyPlayerViewController.isMuted` / Android
+   * `LivebuyPlayerView.isMuted`). RN itself has no playback engine of its own
+   * and no `MutePreferenceStore` — this accessor is a thin read-through to
+   * whichever native Player this view wraps, which already persists the
+   * user's mute preference across Player instances within the same app
+   * session (see the core change above).
+   *
+   * Purpose: lets host/template code query the REAL current mute state at
+   * Player attach time to seed its own mute icon, instead of hardcoding an
+   * unmuted default (the gap the core-side getters exist to fix — this
+   * accessor is what lets RN actually reach them).
+   *
+   * Resolves `false` (never rejects) when the view is not mounted
+   * (`findNodeHandle` returns null) or the wrapped native Player has not been
+   * created yet (iOS: before `load()`). This is a READ, not a WRITE — same
+   * bridge shape as {@link activeEvents} above (Promise-returning native
+   * module method keyed by reactTag, not `dispatchViewManagerCommand`).
+   */
+  isMuted(): Promise<boolean>;
+  /**
    * checkName-gated verified nickname set (guest-nickname-checkname-on-set-rn),
    * RN bridge parity of core's `setGuestNicknameVerified` (iOS
    * `LivebuyPlayerViewController.setGuestNicknameVerified(_:)` / Android
@@ -388,6 +412,18 @@ export interface LivebuyPlayerCoreProps {
    */
   onPlaybackProgressChange?: (progress: LBPlaybackProgress) => void;
 
+  /**
+   * fix-rn-replay-chat-progressive-reveal-core — dedicated progressive replay-chat-reveal channel
+   * forward. Fired repeatedly during finished-live replay as playback advances (native
+   * `Player.onReplayChatRevealed` / `LivebuyPlayerView.onReplayChatRevealed`, a standalone public
+   * notification seam distinct from the one-shot `CHAT_HISTORY_LOADED`), each call carrying the
+   * currently-revealed comment prefix ascending by `LBComment.time`. The host (typically
+   * `react-native-ui`'s `DefaultPlayerTemplate.handleReplayChatRevealed`) reconciles this into its
+   * own merged chat feed. Purely additive — leaving this unset is an inert no-op; the existing
+   * callbacks are unaffected.
+   */
+  onReplayChatRevealed?: (comments: LBReplayChatComment[]) => void;
+
   style?: ViewStyle;
 }
 
@@ -416,6 +452,24 @@ export function dispatchNotifyPipModeChanged(
 ): void {
   if (platformOS !== 'android') return;
   dispatch('notifyPictureInPictureModeChanged', [isInPictureInPictureMode]);
+}
+
+/**
+ * mute-preference-persist-across-session-rn-core — pure resolution logic
+ * behind {@link LivebuyPlayerCoreRef.isMuted}: a view not mounted
+ * (`tag == null`) resolves `false` WITHOUT calling the bridge; otherwise
+ * delegates to `bridgeCall(tag)` and passes its resolution through unchanged.
+ *
+ * Exported for testing — like `dispatchNotifyPipModeChanged`, the native
+ * `.swift`/`.kt` bridge does not compile in this repo, so this pure guard is
+ * the JS-side acceptance gate.
+ */
+export function callIsMuted(
+  tag: number | null,
+  bridgeCall: (reactTag: number) => Promise<boolean>,
+): Promise<boolean> {
+  if (tag == null) return Promise.resolve(false);
+  return bridgeCall(tag);
 }
 
 /**
@@ -562,6 +616,29 @@ export function callSetGuestNicknameVerified(
   return bridgeCall(tag, name);
 }
 
+// fix-rn-replay-chat-progressive-reveal-core — decode the `LBReplayChatRevealed` native event's
+// `comments` field into `LBReplayChatComment[]`. Same tolerant per-field decoding style as
+// `react-native-ui`'s `decodeReplayChatComments` (non-array `comments` -> `[]`; a missing/wrong-
+// typed field on any element falls back to `''`, never throws) — kept here (not imported from
+// `react-native-ui`, which depends on THIS package, not the other way around) so this package's
+// own per-view event decoding has no upward dependency.
+export function mapReplayChatRevealed(wire: { comments?: unknown }): LBReplayChatComment[] {
+  const comments = wire.comments;
+  if (!Array.isArray(comments)) return [];
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  return comments.map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      text: str(r?.text),
+      name: str(r?.name),
+      color: str(r?.color),
+      reply: str(r?.reply),
+      reply_color: str(r?.reply_color),
+      time: str(r?.time),
+    };
+  });
+}
+
 const NATIVE_VIEW = 'LivebuyPlayerView';
 const NativePlayerView = requireNativeComponent<any>(NATIVE_VIEW);
 const { LivebuyRNBridge } = NativeModules;
@@ -580,6 +657,7 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
       onProductTap,
       onChannelChange,
       onPlaybackProgressChange,
+      onReplayChatRevealed,
       style,
     } = props;
 
@@ -655,9 +733,17 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
             latestDurationRef.current = progress.duration;
             onPlaybackProgressChange?.(progress);
           }),
+        // fix-rn-replay-chat-progressive-reveal-core — dedicated progressive replay-chat-reveal
+        // channel forward. Mirrors `LBPlaybackProgressChange` above: a standalone per-view event
+        // (not routed through `onSdkEvent`), decoded via `mapReplayChatRevealed`. Inert (no-op
+        // callback) when `onReplayChatRevealed` is unset.
+        emitter.addListener('LBReplayChatRevealed',
+          (wire: Parameters<typeof mapReplayChatRevealed>[0]) => {
+            onReplayChatRevealed?.(mapReplayChatRevealed(wire));
+          }),
       ];
       return () => subs.forEach(s => s.remove());
-    }, [onStateChange, onPollReceived, onError, onProductTap, onChannelChange, onPlaybackProgressChange]);
+    }, [onStateChange, onPollReceived, onError, onProductTap, onChannelChange, onPlaybackProgressChange, onReplayChatRevealed]);
 
     // Imperative API.
     useImperativeHandle(ref, () => ({
@@ -699,6 +785,14 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
         if (tag == null) return Promise.resolve([]);
         return LivebuyRNBridge.activeEvents(tag) as Promise<LBActiveEvent[]>;
       },
+      // mute-preference-persist-across-session-rn-core: read-only accessor for
+      // the wrapped native Player's actual current mute state. Delegates to the
+      // exported pure `callIsMuted` guard (tag == null → resolve `false`
+      // without hitting native; otherwise delegates to the Promise-returning
+      // native module method keyed by reactTag) — same shape as
+      // `callSetGuestNicknameVerified` above.
+      isMuted: (): Promise<boolean> =>
+        callIsMuted(findNodeHandle(nativeRef.current), LivebuyRNBridge.isMuted),
       // guest-nickname-checkname-on-set-rn: checkName-gated verified nickname set.
       // Same bridge shape as `activeEvents` above (Promise-returning native module
       // method keyed by reactTag, not dispatchViewManagerCommand) — needs a

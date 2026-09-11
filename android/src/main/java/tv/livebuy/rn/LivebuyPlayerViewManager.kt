@@ -24,6 +24,7 @@ import tv.livebuy.sdk.models.LBAward
 import tv.livebuy.sdk.models.LBAwardClaimInput
 import tv.livebuy.sdk.models.LBChannel
 import tv.livebuy.sdk.models.LBHotItem
+import tv.livebuy.sdk.models.LBNavItem
 import tv.livebuy.sdk.models.LBPlaybackProgress
 import tv.livebuy.sdk.models.LBProduct
 import tv.livebuy.sdk.models.LBSpec
@@ -34,17 +35,21 @@ import tv.livebuy.sdk.player.PiPHelper
 import tv.livebuy.sdk.player.VideoInfoPanel
 
 /**
- * Narrow, structurally-equal (Kotlin `data class`) snapshot of ONLY the 12 fields
+ * Narrow, structurally-equal (Kotlin `data class`) snapshot of ONLY the 20 fields
  * `LBPlayerChannelInfo` projects (rb-react-native-subtitle-channel-info-bridge-core
  * §momentState dedupe; player-channel-chrome-fields-core-rn added
- * shopName/shopLogo/shareUrl; channel-type-bridge-core-rn added type). Deliberately
- * NOT a whole-[LBChannel] comparison — `LBChannel` carries many more fields (goods,
- * nav, spec, watchNum, …) that have no bearing on this projection; comparing the full
- * model would re-fire on changes this event doesn't even carry, while comparing
- * nothing at all (always emitting) would spam the RN bridge on every unrelated
- * `onMomentStateChange` publish (subtitle CC toggle, viewer-count tick,
- * chat-visibility flip, end-screen countdown tick, product-overlay updates, …) that
- * leaves these 12 fields unchanged.
+ * shopName/shopLogo/shareUrl; channel-type-bridge-core-rn added type;
+ * channel-shop-intro-bridge-core-rn added shopIntro; channel-flash-sale-flag-core-rn
+ * added isFlashSale; rn-guest-comment-channel-bridge-core added guestComment;
+ * rn-moment-products-bridge-core added products/narratingProduct;
+ * rn-endscreen-next-bridge-core added next; rn-channel-notice-bridge-core added
+ * notice/sysNotice). Deliberately NOT a whole-[LBChannel] comparison — `LBChannel`
+ * carries many more fields (goods, nav, spec, watchNum, …) that have no bearing on
+ * this projection; comparing the full model would re-fire on changes this event
+ * doesn't even carry, while comparing nothing at all (always emitting) would spam
+ * the RN bridge on every unrelated `onMomentStateChange` publish (subtitle CC
+ * toggle, viewer-count tick, chat-visibility flip, end-screen countdown tick,
+ * product-overlay updates, …) that leaves these 14 fields unchanged.
  */
 private data class ChannelInfoSnapshot(
     val publishAt: String,
@@ -71,9 +76,50 @@ private data class ChannelInfoSnapshot(
     // dedupe path would miss a shopIntro-only change (e.g. a merchant editing
     // their shop intro text mid-LIVE while liveStatus/type stay unchanged).
     val shopIntro: String,
+    // channel-flash-sale-flag-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss an isFlashSale-only change. In practice this field
+    // is expected constant within a session (backend guarantees it), but is
+    // still included here defensively, following the existing pattern for every
+    // other projected field.
+    val isFlashSale: Boolean,
+    // rn-guest-comment-channel-bridge-core — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange dedupe path
+    // would miss a guestComment-only change. UNLIKE isFlashSale's purely-theoretical
+    // defensive rationale, this IS a real, expected mid-LIVE trigger path: core's own
+    // channel-settings refresh comment elsewhere in this SDK explicitly documents
+    // "channel-settings refresh (問題4) updates channel.guestComment" — a merchant can
+    // toggle guest chat on/off from the backend mid-broadcast.
+    val guestComment: Int,
+    // rn-moment-products-bridge-core — additive. UNLIKE every field above, these two are NOT
+    // derived from `channel` (`LBChannel` has no `products`/`narratingProduct` — only the
+    // load-time-static `channel.goods`) — they are sourced from the `onMomentStateChange`
+    // callback's own `LBPlayerMomentState` argument. Must stay in sync with LBPlayerChannelInfo's
+    // projected fields, otherwise the dedupe path would miss a narrate-status flip (介紹中商品換人)
+    // or products-list-only change while every channel-derived field stays unchanged.
+    val products: List<LBProduct>,
+    val narratingProduct: LBProduct?,
+    // rn-endscreen-next-bridge-core — additive. UNLIKE `products`/`narratingProduct` above,
+    // `next` IS derived from `channel` (`channel.next`, same as every other field in this data
+    // class) — `LBNavItem` is itself a `data class`, so structural equality is supported
+    // natively without any fingerprint indirection (Android does not need iOS's
+    // `NavItemFingerprint` workaround). Must stay in sync with LBPlayerChannelInfo's projected
+    // fields, otherwise the dedupe path would miss a next[]-only change while every other field
+    // stays unchanged.
+    val next: List<LBNavItem>,
+    // rn-channel-notice-bridge-core — additive. Must stay in sync with LBPlayerChannelInfo's
+    // projected fields, otherwise the onMomentStateChange dedupe path would miss a
+    // notice/sysNotice-only change (e.g. a merchant editing the announcement text mid-LIVE).
+    // Read from the TOP-LEVEL `channel`, NOT `channel.shop`.
+    val notice: String,
+    val sysNotice: String,
 ) {
     companion object {
-        fun from(channel: LBChannel) = ChannelInfoSnapshot(
+        fun from(
+            channel: LBChannel,
+            products: List<LBProduct> = emptyList(),
+            narratingProduct: LBProduct? = null,
+        ) = ChannelInfoSnapshot(
             publishAt = channel.publishAt,
             cover = channel.cover,
             start = channel.start,
@@ -87,6 +133,13 @@ private data class ChannelInfoSnapshot(
             shareUrl = channel.shareUrl,
             type = channel.type,
             shopIntro = channel.shop.intro,
+            isFlashSale = channel.isFlashSale,
+            guestComment = channel.guestComment,
+            products = products,
+            narratingProduct = narratingProduct,
+            next = channel.next,
+            notice = channel.notice,
+            sysNotice = channel.sysNotice,
         )
     }
 }
@@ -131,8 +184,17 @@ internal class LivebuyPlayerViewManager(
         // reach this call site (`applyRefreshedChannel` does not call
         // `publishMomentState()`).
         view.onChannelRefresh = { channel ->
-            channelInfoSnapshots[view] = ChannelInfoSnapshot.from(channel)
-            module?.emitChannelChange(channel)
+            // rn-moment-products-bridge-core — this hook has NO moment-state data of its own
+            // (`(LBChannel) -> Unit` signature), so it carries over the LAST known
+            // products/narratingProduct from the most recent onMomentStateChange snapshot rather
+            // than resetting to empty — avoids a transient empty flash on every LIVE 20s settings
+            // refresh (onMomentStateChange already fired at least once by the time this can fire,
+            // since it fires unconditionally on every channel load).
+            val lastKnown = channelInfoSnapshots[view]
+            val products = lastKnown?.products ?: emptyList()
+            val narratingProduct = lastKnown?.narratingProduct
+            channelInfoSnapshots[view] = ChannelInfoSnapshot.from(channel, products, narratingProduct)
+            module?.emitChannelChange(channel, products, narratingProduct)
         }
         // rb-react-native-subtitle-channel-info-bridge-core — additive coverage for
         // VOD / upcoming / initial-load channel-info emission, closing the gap
@@ -154,13 +216,16 @@ internal class LivebuyPlayerViewManager(
         // unconditional-per-tick RN bridge crossing. The dedupe key deliberately does
         // NOT use video id alone: an upcoming→live `liveStatus` flip (30s preview
         // poll) keeps the same id but IS a real change this event must still carry.
-        view.onMomentStateChange = {
+        view.onMomentStateChange = { state ->
             val ch = view.channel
             if (ch != null) {
-                val snapshot = ChannelInfoSnapshot.from(ch)
+                // rn-moment-products-bridge-core — `products`/`narratingProduct` read off THIS
+                // callback's own `state` argument (LBPlayerMomentState), NOT `ch`/`view.channel`
+                // (LBChannel has no such fields — only the load-time-static `channel.goods`).
+                val snapshot = ChannelInfoSnapshot.from(ch, state.products, state.narratingProduct)
                 if (snapshot != channelInfoSnapshots[view]) {
                     channelInfoSnapshots[view] = snapshot
-                    module?.emitChannelChange(ch)
+                    module?.emitChannelChange(ch, state.products, state.narratingProduct)
                 }
             }
         }
@@ -179,6 +244,12 @@ internal class LivebuyPlayerViewManager(
         // `vodActiveProducts(products:position:)` reads.
         view.onPlaybackProgressChange = { progress ->
             module?.emitPlaybackProgressChange(progress, view.channel?.goods ?: emptyList())
+        }
+
+        // fix-rn-replay-chat-progressive-reveal-core — per-view wiring for the progressive
+        // replay-chat-reveal seam, same forwarding shape as `onPlaybackProgressChange` above.
+        view.onReplayChatRevealed = { comments ->
+            module?.emitReplayChatRevealed(comments)
         }
 
         // rb-react-native-subtitle-channel-info-bridge-core — seed the dedupe map so

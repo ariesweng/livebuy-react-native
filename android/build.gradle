@@ -107,22 +107,34 @@ dependencies {
     // the core `:livebuy` module, NONE in :livebuy-ui / :livebuy-reference-ui. So a
     // single `tv.livebuy:livebuy` dependency is sufficient (RN has its own TypeScript
     // reference-ui). Version aligns the Android remote channel (LIVEBUY_MAVEN_VERSION,
-    // currently 4.11.0 — the current official published version, iOS/Android lockstep,
-    // git tag `android-v4.11.0`) and MUST be a PUBLISHED channel version whose core
+    // currently 4.18.0 — the current official published version, iOS/Android lockstep,
+    // git tag `android-v4.18.0`) and MUST be a PUBLISHED channel version whose core
     // artifact carries the bridge's full core API surface, INCLUDING the post-rename
     // class names `tv.livebuy.sdk.LivebuySDK` / `tv.livebuy.sdk.player.LivebuyPlayerView`
     // (2026-07-16 brand-casing rename, commit c140f4bf; any channel version published
     // before that commit — including the very first pin 3.2.0 — still resolves to the
     // pre-rename `LiveBuySDK` / `LiveBuyPlayerView` class names and fails a consumer's
     // `import tv.livebuy.sdk.LivebuySDK` line even though this module's own Kotlin
-    // source compiles fine against monorepo HEAD). This particular bump (4.10.0 ->
-    // 4.11.0) is routine version tracking, not a rename/API fix — v4.11.0 introduces no
-    // change touching anything this bridge references. Do NOT pin the core-internal
-    // `defaultConfig.versionName` (1.3.0 — X-SDK-Version only, not published to the
-    // channel). This pin is a point-in-time snapshot, not a moving target — it WILL
-    // drift again whenever core cuts a new published version; bump it the same way when
-    // that happens, don't assume the literal version above stays current.
-    implementation "tv.livebuy:livebuy:4.11.0"
+    // source compiles fine against monorepo HEAD). Unlike the prior three bumps
+    // (4.10.0 -> 4.11.0 -> 4.16.0 -> 4.17.0, all routine version tracking against a
+    // ZERO-change core), THIS bump (4.17.0 -> 4.18.0) closes a real symbol gap: core
+    // `[4.18.0]` adds `LivebuyPlayerView`'s public read-only `isMuted` getter
+    // (mute-preference-persist-across-session-android-core), and this bridge's
+    // `LivebuyRNModule.isMuted(reactTag, promise)` (mute-preference-persist-across-session-rn-core,
+    // landed in an EARLIER change) already calls `view?.isMuted ?: false` — while the
+    // pin sat at 4.17.0 (no such getter), that call was compiling against a core
+    // artifact that did not yet carry the symbol it references. This bump is what
+    // makes that call resolve for real, not just routine catch-up (verified against
+    // `livebuy-android-sdk/CHANGELOG.md`'s `[4.18.0]` entry — the only other
+    // core-scoped items, "confirmatory recovery after live-retry exhaustion" and
+    // "setMuted now carries over from intro to main playback", don't touch any
+    // existing bridge call's signature; every remaining item is reference-ui-internal
+    // / template layer). Do NOT pin the core-internal `defaultConfig.versionName`
+    // (1.3.0 — X-SDK-Version only, not published to the channel). This pin is a
+    // point-in-time snapshot, not a moving target — it WILL drift again whenever core
+    // cuts a new published version; bump it the same way when that happens, don't
+    // assume the literal version above stays current.
+    implementation "tv.livebuy:livebuy:4.18.0"
 
     // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
     // MainScope / launch). The core SDK pulls it transitively but as `implementation`,

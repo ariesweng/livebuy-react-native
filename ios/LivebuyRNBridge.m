@@ -115,6 +115,14 @@ RCT_EXTERN_METHOD(activeEvents:(nonnull NSNumber *)reactTag
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+// MARK: - isMuted accessor (mute-preference-persist-across-session-rn-core)
+// View-scoped Promise accessor keyed by reactTag — current actual mute state
+// of the addressed player (mirrors iOS/Android core isMuted getter). View gone /
+// no core player yet → resolves false.
+RCT_EXTERN_METHOD(isMuted:(nonnull NSNumber *)reactTag
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 // MARK: - setGuestNicknameVerified bridge (guest-nickname-checkname-on-set-rn
 //         + guest-nickname-verified-fails-loudly-rn)
 // View-scoped Promise accessor keyed by reactTag — checkName-gated verified

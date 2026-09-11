@@ -13,7 +13,7 @@ export interface LBUser {
 }
 
 export interface LBConfigOptions {
-  apiKey: number;
+  apiKey: string;
   secret: string;
   /**
    * Shop ID (base-62 encoded, e.g. `"Pw8PJ99J"`). Determines which shop's
@@ -516,6 +516,33 @@ export function mapFeaturedGood(wire: unknown): LBFeaturedGood | undefined {
   return { name, pic, price, originalPrice, soldOut, stock, status };
 }
 
+/**
+ * A single next-video navigation entry (`LBChannel.next[]`, native `LBNavItem`),
+ * forwarded over `LBPlayerChannelInfo.next` (rn-endscreen-next-bridge-core). Feeds
+ * the EndScreen「倒數播放下一支」variant. Only the EndScreen-consumed subset of the
+ * native `LBNavItem` shape is carried here — `preview` (short preview-loop URL) is
+ * deliberately NOT forwarded (no consumer for it yet). `channel.hot[]`/`channel.prev[]`
+ * are likewise NOT forwarded (EndScreen no longer consumes `hot[]`; `prev[]` has no
+ * known consumer).
+ */
+export interface LBNavItem {
+  /** Video id (`LBNavItem.id`). */
+  id: string;
+  /** Video cover URL (`LBNavItem.cover`). `""` when absent. */
+  cover: string;
+  /**
+   * Video title (`LBNavItem.title`). `String?` on the native model (absent in
+   * `prev[]`, present in `next[]` per LBModels.swift/.kt) — kept as `string | null`
+   * here (NOT coerced to `""`) so a genuinely title-less entry stays distinguishable
+   * from "field missing on the wire".
+   */
+  title: string | null;
+  /** Video duration in seconds (`LBNavItem.duration`). `0` when absent/unparseable. */
+  duration: number;
+  /** Shop display name (`LBNavItem.shopName`, wire key `shop_name`). `""` when absent. */
+  shopName: string;
+}
+
 // MARK: - Player channel info (upcoming-intro-core-rn — channel 轉發 bridge)
 
 /**
@@ -627,6 +654,74 @@ export interface LBPlayerChannelInfo {
    * bridge projection — channel-shop-intro-bridge-core-rn).
    */
   shopIntro: string;
+  /**
+   * Whether the channel is a flash sale (`channel.isFlashSale`, wire key
+   * `is_flash_sale` — a top-level `LBChannel` field, NOT nested under
+   * `channel.shop`). Semantics: `= upstream sale_type==2`, always present on
+   * the wire, independent of `type` / `liveStatus`. `false` when absent
+   * (channel-flash-sale-flag-core-rn).
+   */
+  isFlashSale: boolean;
+  /**
+   * Guest-comment send gate (`channel.guestComment`, wire key `guest_comment`
+   * — a top-level `LBChannel` field). `0`/`1`, REVERSE semantics: `0` =
+   * comments restricted to logged-in members / guests blocked, `1` = guests
+   * may comment. Feeds `chatEnabled`/`guestEditAvailable` derivation
+   * downstream (`rn-guest-comment-channel-bridge-core`) — mirrors iOS/Android
+   * core's own synchronous `chatEnabled` derivation
+   * (`liveStatus==1 && !(isGuest && guestComment==0)`, `OperationPanelView`).
+   * This field is a raw passthrough only — the SDK does not derive the
+   * boolean gate itself. `1` (fail-open — guest comments assumed OPEN, NOT
+   * restricted) when absent / unparseable — this is a DELIBERATE divergence
+   * from `isSubtitle`'s `0` conservative default and `type`/`liveStatus`'s
+   * `-1` unknown sentinel: `guest_comment` already has an SDK-wide
+   * established fail-open default of `1` (see CLAUDE.md §Key Invariants), so
+   * this bridge stays consistent with every other `guest_comment` read path
+   * in the SDK rather than introducing a THIRD "missing" convention here.
+   */
+  guestComment: number;
+  /**
+   * Live-updating products list (`rn-moment-products-bridge-core`). UNLIKE every field
+   * above, this is NOT derived from `channel` (which only has the load-time-static
+   * `channel.goods`) — the native bridge sources it from the `onMomentStateChange`
+   * callback's own moment-state argument, so this re-emits on every native goods-poll
+   * tick (5–15s cadence), not just on channel load. `[]` when absent (older native
+   * binary, or genuinely empty).
+   */
+  products: LBProduct[];
+  /**
+   * The single representative `narrate_status == 2` product, if any (`rn-moment-products-bridge-core`).
+   * Same moment-state-sourced data path as {@link products}. `null` when none is
+   * currently being narrated, or when absent (older native binary).
+   */
+  narratingProduct: LBProduct | null;
+  /**
+   * Next-video navigation entries (`channel.next[]`, wire key `next`) — feeds the
+   * EndScreen「倒數播放下一支」variant (rn-endscreen-next-bridge-core). `[]` when
+   * absent / the channel has no next video. UNLIKE {@link products}/
+   * {@link narratingProduct} above, this IS channel-sourced (same data path as every
+   * field above it, e.g. `shopName`/`type`) — raw passthrough of the native
+   * `LBNavItem` shape's EndScreen-consumed subset (`id`/`cover`/`title`/`duration`/
+   * `shopName` only — `preview` is NOT forwarded; `channel.hot[]`/`channel.prev[]`
+   * are likewise NOT forwarded, EndScreen no longer consumes `hot[]`).
+   */
+  next: LBNavItem[];
+  /**
+   * Channel announcement text (`channel.notice`, wire key `notice`). `""` when
+   * absent. A top-level `LBChannel` field (NOT nested under `channel.shop`). Raw
+   * passthrough — the SDK does not interpret or render this text; feeds a
+   * downstream announcement-banner reference-ui change. Previously the only way
+   * the host received this value was the delayed `POLL_RECEIVED` event (which
+   * needs native `PollManager` to be running, i.e. only after `.playing`); this
+   * field reaches the host at channel-load time instead (rn-channel-notice-bridge-core).
+   */
+  notice: string;
+  /**
+   * System announcement text (`channel.sysNotice`, wire key `sys_notice`). `""`
+   * when absent. Same top-level `LBChannel` field shape, load-time delivery, and
+   * raw-passthrough semantics as {@link notice} (rn-channel-notice-bridge-core).
+   */
+  sysNotice: string;
 }
 
 /**
@@ -637,11 +732,31 @@ export interface LBPlayerChannelInfo {
  *
  * Wire contract (raw passthrough, SDK does not interpret):
  *   - string fields (`publish_at` / `cover` / `start` / `title` / `service_link` /
- *     `subtitle_url` / `shop_name` / `shop_logo` / `share_url` / `shop_intro`):
- *     missing / null → `""`.
+ *     `subtitle_url` / `shop_name` / `shop_logo` / `share_url` / `shop_intro` /
+ *     `notice` / `sys_notice`): missing / null → `""`.
  *   - `live_status`: Number OR a stringified Int is tolerated; missing → `-1` (unknown).
  *   - `is_subtitle`: Number OR a stringified Int is tolerated; missing / unparseable →
  *     `0` (no subtitle) — see {@link coerceIsSubtitle}.
+ *   - `is_flash_sale`: boolean (documented wire shape) OR Number 0/1 OR a
+ *     stringified boolean/Int is tolerated; missing / unparseable → `false` —
+ *     see {@link coerceIsFlashSale}.
+ *   - `guest_comment`: Number OR a stringified Int is tolerated; missing /
+ *     unparseable → `1` (fail-open — NOT `-1` unknown like `live_status`/
+ *     `type`, NOT `0` conservative like `is_subtitle`) — see
+ *     {@link coerceGuestComment}.
+ *   - `products`: missing / null / non-Array → `[]` (mirrors {@link mapPlaybackProgress}'s
+ *     `products` handling — the native bridge is the acceptance gate for each individual
+ *     `LBProduct`'s full field set, per the `RN/Flutter bridge LBProduct 完整欄位投影`
+ *     contract; this mapper only guards top-level presence, same as every other
+ *     `LBProduct[]`-typed wire field in this file).
+ *   - `narrating_product`: missing / null / non-object → `null`.
+ *   - `next`: missing / null / non-Array → `[]` (rn-endscreen-next-bridge-core). UNLIKE
+ *     `products`/`narrating_product` above, this field IS channel-sourced (same data
+ *     path as every string/number field above it). Per-entry tolerance: an entry
+ *     missing/mistyped `id` is dropped entirely (not just defaulted); `cover`/
+ *     `shop_name` missing/mistyped → `""`; `title` missing/mistyped → `null` (NOT
+ *     `""` — preserves the native `String?` optional semantics); `duration`
+ *     missing/mistyped/non-finite → `0`. See {@link mapNavItem}.
  */
 export function mapPlayerChannelInfo(wire: {
   publish_at?: string | null;
@@ -657,6 +772,13 @@ export function mapPlayerChannelInfo(wire: {
   share_url?: string | null;
   type?: number | string | null;
   shop_intro?: string | null;
+  is_flash_sale?: boolean | number | string | null;
+  guest_comment?: number | string | null;
+  products?: LBProduct[] | null;
+  narrating_product?: LBProduct | null;
+  next?: unknown;
+  notice?: string | null;
+  sys_notice?: string | null;
 }): LBPlayerChannelInfo {
   return {
     publishAt: wire.publish_at ?? '',
@@ -672,7 +794,47 @@ export function mapPlayerChannelInfo(wire: {
     shareUrl: wire.share_url ?? '',
     type: coerceChannelType(wire.type),
     shopIntro: wire.shop_intro ?? '',
+    isFlashSale: coerceIsFlashSale(wire.is_flash_sale),
+    guestComment: coerceGuestComment(wire.guest_comment),
+    products: Array.isArray(wire.products) ? wire.products : [],
+    narratingProduct: wire.narrating_product ?? null,
+    next: mapNavItems(wire.next),
+    notice: wire.notice ?? '',
+    sysNotice: wire.sys_notice ?? '',
   };
+}
+
+/**
+ * Coerce a single wire `next[]` entry to `LBNavItem` (rn-endscreen-next-bridge-core).
+ * Mirrors {@link mapFeaturedGood}'s per-field tolerant style — even though the
+ * near-term producer (the native bridge) is well-typed, malformed / missing fields
+ * are defensively defaulted rather than allowed to propagate `undefined`/wrong
+ * types into host code. An entry missing (or non-string) `id` is dropped entirely
+ * (returns `undefined`) — every other `LBNavItem` field has a safe default, but an
+ * item with no identity has no safe stand-in.
+ */
+function mapNavItem(wire: unknown): LBNavItem | undefined {
+  if (wire == null || typeof wire !== 'object') return undefined;
+  const w = wire as Record<string, unknown>;
+  if (typeof w.id !== 'string') return undefined;
+  return {
+    id: w.id,
+    cover: typeof w.cover === 'string' ? w.cover : '',
+    title: typeof w.title === 'string' ? w.title : null,
+    duration: typeof w.duration === 'number' && Number.isFinite(w.duration) ? w.duration : 0,
+    shopName: typeof w.shop_name === 'string' ? w.shop_name : '',
+  };
+}
+
+/**
+ * Coerce a wire `next` field to `LBNavItem[]` (rn-endscreen-next-bridge-core).
+ * Missing / null / non-Array → `[]`; each entry is mapped via {@link mapNavItem},
+ * with entries that fail (no valid `id`) filtered out rather than propagated as
+ * `undefined` gaps in the array.
+ */
+function mapNavItems(wire: unknown): LBNavItem[] {
+  if (!Array.isArray(wire)) return [];
+  return wire.map(mapNavItem).filter((item): item is LBNavItem => item !== undefined);
 }
 
 /**
@@ -718,6 +880,55 @@ function coerceChannelType(value: number | string | null | undefined): number {
     return Number.isNaN(n) ? -1 : n;
   }
   return -1;
+}
+
+/**
+ * Coerce a wire `is_flash_sale` flag to a boolean. Absent / unparseable →
+ * `false` (channel-flash-sale-flag-core-rn). The documented wire shape is a
+ * JSON boolean, but — mirroring this repo's usual "never assume the wire
+ * matches the docs" tolerance (see `coerceLiveStatus` / `coerceIsSubtitle` /
+ * `coerceChannelType`) — a Number (`0`/`1`) or a stringified boolean/Int is
+ * also tolerated. Kept as an independent function, not shared with the other
+ * `coerce*` helpers: this field's target type is `boolean`, not `number`, and
+ * its semantics (`= upstream sale_type==2`) are unrelated to `liveStatus` /
+ * `type` / `isSubtitle`.
+ */
+function coerceIsFlashSale(
+  value: boolean | number | string | null | undefined
+): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1') return true;
+    if (normalized === 'false' || normalized === '0') return false;
+    return false;
+  }
+  return false;
+}
+
+/**
+ * Coerce a wire `guest_comment` 0/1 flag to a number. Absent / unparseable →
+ * `1` (fail-open — guest comments assumed OPEN, `rn-guest-comment-channel-bridge-core`).
+ * Tolerates a Number (native emit) OR a stringified Int (defensive), mirroring
+ * `coerceIsSubtitle`'s shape — but kept as an INDEPENDENT function, not a
+ * reuse of `coerceIsSubtitle` (whose fallback is `0`) or `coerceLiveStatus`/
+ * `coerceChannelType` (whose fallback is `-1`, an "unknown" sentinel).
+ * `guest_comment` is different: this exact field already has an SDK-wide
+ * established fail-open default of `1` baked into both native SDKs' own
+ * decode paths (iOS `LBChannelDTO.swift`, Android `ChannelMapper.kt`)
+ * specifically because a missing/dropped `guest_comment` was once a live
+ * regression that silently disabled guest chat entirely (REVERSE semantics:
+ * `0` = restricted). Reusing `coerceIsSubtitle`'s `0` default here would
+ * resurface exactly that class of bug on the RN bridge.
+ */
+function coerceGuestComment(value: number | string | null | undefined): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number.parseInt(value, 10);
+    return Number.isNaN(n) ? 1 : n;
+  }
+  return 1;
 }
 
 // MARK: - VOD playback progress (rn-vod-playback-progress-core)
@@ -1042,6 +1253,23 @@ export type LBPowerProfile = 'full' | 'reduced' | 'conservative' | 'survival';
  */
 let directCloseButtonEnabled = true;
 
+/**
+ * rn-live-now-pill-auto-shopid-turnkey-core — JS-only module state caching
+ * the `shopId` last passed to `configure()`. Unlike `directCloseButtonEnabled`,
+ * the underlying `shopId` value IS still forwarded to
+ * `LivebuyRNBridge.configure(...)` as before (3rd positional arg) — this is a
+ * PARALLEL JS-side echo of that same input, not a replacement of the native
+ * forward. Written by `configure()` synchronously, before the bridge call's
+ * returned Promise settles either way, so a subsequent rejection (e.g.
+ * `NOT_CONFIGURED` on an HMAC failure) does not un-record the attempted value.
+ * Read synchronously by `currentShopId()`. `undefined` before `configure()`
+ * has ever been called. Every `configure()` call unconditionally re-derives
+ * this from `options.shopId`, so a later call always wins over an earlier one
+ * (no separate `_resetForTesting` hook needed, mirroring
+ * `directCloseButtonEnabled`'s own no-reset-hook rationale above).
+ */
+let configuredShopId: string | undefined;
+
 const LivebuySDK = {
   /**
    * Initialize the SDK. Now returns a Promise — under the hood the native
@@ -1056,8 +1284,16 @@ const LivebuySDK = {
     // in the LivebuyRNBridge.configure(...) positional-argument list below —
     // see the module-level `directCloseButtonEnabled` doc comment for why.
     directCloseButtonEnabled = options.enableDirectCloseButton ?? true;
+    // rn-live-now-pill-auto-shopid-turnkey-core: JS-only cache of the same
+    // shopId value still forwarded below — see the module-level
+    // `configuredShopId` doc comment for why.
+    configuredShopId = options.shopId;
     return LivebuyRNBridge.configure(
-      options.apiKey,
+      // Defensive stringification at the bridge chokepoint: the native side (Android
+      // `LivebuyRNModule.configure(apiKey: String, ...)`) requires a string — a JS number here
+      // serializes as a native Double and crashes on the other side's `getString()`. Guard
+      // regardless of what an untyped/bypassing caller actually passes.
+      String(options.apiKey),
       options.secret,
       options.shopId,
       // Explicit null rather than undefined: the RN bridge coerces both, but null signals deliberate omission.
@@ -1104,6 +1340,27 @@ const LivebuySDK = {
    */
   isDirectCloseButtonEnabled(): boolean {
     return directCloseButtonEnabled;
+  },
+
+  /**
+   * Read back the `shopId` last passed to {@link configure}
+   * (`rn-live-now-pill-auto-shopid-turnkey-core`). Mirrors
+   * `isDirectCloseButtonEnabled()`'s JS-only-cache pattern — synchronous,
+   * side-effect-free, no native bridge round-trip. `undefined` before
+   * `configure()` has ever been called.
+   *
+   * Unlike `isDirectCloseButtonEnabled()`, the cached value here is NOT
+   * JS-only state: `shopId` is still forwarded to `LivebuyRNBridge.configure(...)`
+   * exactly as before — this getter is a parallel JS-side echo of that same
+   * input, not a replacement.
+   *
+   * Lets a reference-ui drop-in surface (e.g. `LivebuyPlayerConfig`'s
+   * 「現正直播」pill, via `useLiveNowPoll`) default to the configured shop
+   * instead of requiring the host to re-supply a value it already gave
+   * `configure()`.
+   */
+  currentShopId(): string | undefined {
+    return configuredShopId;
   },
 
   /**
