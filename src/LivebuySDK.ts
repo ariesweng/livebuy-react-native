@@ -119,6 +119,29 @@ export interface LBConfigOptions {
    * {@link LivebuySDK.isDirectCloseButtonEnabled}.
    */
   enableDirectCloseButton?: boolean;
+  /**
+   * Global default requiring login before add-to-cart
+   * (`rn-add-to-cart-login-gate-core`). Default `false` (current behavior: the
+   * SDK does not proactively block a guest's add-to-cart; `/sdk/video/addcart`
+   * sends normally, and only an empty-`buy_no` backend response passively
+   * triggers the existing `cart-needs-login-gate` reference-ui). Pass `true`
+   * to require login before add-to-cart.
+   *
+   * **JS-only, NOT forwarded to the native bridge — and NOT persisted.**
+   * Mirrors {@link enableDirectCloseButton}'s rationale (see that field's doc
+   * comment): this flag only drives whether RN's own JS add-to-cart logic
+   * (`react-native-ui`'s `DefaultTemplate.addToCart()`, a downstream template
+   * change) blocks locally before calling
+   * {@link LivebuySDK.addToCart} — the native iOS/Android SDK never sees or
+   * needs to know about it (each platform carries its own independent core
+   * flag for the same UX decision: `add-to-cart-login-gate-core` /
+   * `android-add-to-cart-login-gate-core`, which DO forward to their native
+   * `configure(...)` and persist to platform storage — unlike this RN flag,
+   * which lives only in this module's memory and resets to `false` on every
+   * fresh load). Read the current value via
+   * {@link LivebuySDK.isRequireLoginForAddToCartEnabled}.
+   */
+  requireLoginForAddToCart?: boolean;
 }
 
 /**
@@ -696,6 +719,15 @@ export interface LBPlayerChannelInfo {
    */
   narratingProduct: LBProduct | null;
   /**
+   * Live-updating viewer count (`rn-viewer-count-bridge-core`). Same moment-state-sourced
+   * data path as {@link products}/{@link narratingProduct} (NOT derived from `channel` —
+   * read off the `onMomentStateChange` callback's own moment-state argument, which native
+   * core already computes as `channel?.watchNum ?? momentState.viewerCount`). `0` when
+   * absent (older native binary, or genuinely zero). Does NOT carry the separate,
+   * orthogonal `viewerCountVisible` display-gate flag — this is a raw count only.
+   */
+  viewerCount: number;
+  /**
    * Next-video navigation entries (`channel.next[]`, wire key `next`) — feeds the
    * EndScreen「倒數播放下一支」variant (rn-endscreen-next-bridge-core). `[]` when
    * absent / the channel has no next video. UNLIKE {@link products}/
@@ -750,6 +782,10 @@ export interface LBPlayerChannelInfo {
  *     contract; this mapper only guards top-level presence, same as every other
  *     `LBProduct[]`-typed wire field in this file).
  *   - `narrating_product`: missing / null / non-object → `null`.
+ *   - `viewer_count`: Number OR a stringified Int is tolerated; missing / unparseable →
+ *     `0` (conservative default — a plain counter, not a tri-state flag, so there is no
+ *     `-1` unknown-sentinel need) — see {@link coerceViewerCount}
+ *     (rn-viewer-count-bridge-core).
  *   - `next`: missing / null / non-Array → `[]` (rn-endscreen-next-bridge-core). UNLIKE
  *     `products`/`narrating_product` above, this field IS channel-sourced (same data
  *     path as every string/number field above it). Per-entry tolerance: an entry
@@ -776,6 +812,7 @@ export function mapPlayerChannelInfo(wire: {
   guest_comment?: number | string | null;
   products?: LBProduct[] | null;
   narrating_product?: LBProduct | null;
+  viewer_count?: number | string | null;
   next?: unknown;
   notice?: string | null;
   sys_notice?: string | null;
@@ -798,6 +835,7 @@ export function mapPlayerChannelInfo(wire: {
     guestComment: coerceGuestComment(wire.guest_comment),
     products: Array.isArray(wire.products) ? wire.products : [],
     narratingProduct: wire.narrating_product ?? null,
+    viewerCount: coerceViewerCount(wire.viewer_count),
     next: mapNavItems(wire.next),
     notice: wire.notice ?? '',
     sysNotice: wire.sys_notice ?? '',
@@ -931,6 +969,24 @@ function coerceGuestComment(value: number | string | null | undefined): number {
   return 1;
 }
 
+/**
+ * Coerce a wire `viewer_count` to a number. Absent / unparseable → `0` (a
+ * conservative default — this is a plain counter, not a tri-state flag, so
+ * there is no "unknown" sentinel need like `coerceLiveStatus`/`coerceChannelType`
+ * use). Tolerates a Number (native emit) OR a stringified Int (defensive),
+ * mirroring `coerceIsSubtitle`'s shape (rn-viewer-count-bridge-core). Sourced
+ * from the `onMomentStateChange` callback's own moment-state argument (NOT
+ * `channel`) — mirrors `products`/`narratingProduct`'s data-source split.
+ */
+function coerceViewerCount(value: number | string | null | undefined): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number.parseInt(value, 10);
+    return Number.isNaN(n) ? 0 : n;
+  }
+  return 0;
+}
+
 // MARK: - VOD playback progress (rn-vod-playback-progress-core)
 
 /**
@@ -1056,6 +1112,16 @@ export interface LBAddToCartOptions {
   goodsId?: number;
   num?: number;
   specificationId?: number;
+  /**
+   * @deprecated (`deprecate-cart-purchase-ids-mode`) Cart-purchase
+   * (`user_carts.id` array) mode. No reference-ui / template / example caller
+   * has ever passed a non-empty `ids` since this method was introduced, and
+   * the backend's own "what PHP actually returns today" wire contract
+   * (`docs/backend/go-rewrite-wire-contract.md` §2.7) only documents the
+   * direct-purchase fields — `ids` support against the current backend has
+   * never been verified. Behaviour is unchanged for now (a non-empty `ids`
+   * is still forwarded as-is); this field will be removed in the next major.
+   */
   ids?: number[];
   live?: number;
   isLive?: number;
@@ -1254,6 +1320,21 @@ export type LBPowerProfile = 'full' | 'reduced' | 'conservative' | 'survival';
 let directCloseButtonEnabled = true;
 
 /**
+ * rn-add-to-cart-login-gate-core — JS-only module state for
+ * `LBConfigOptions.requireLoginForAddToCart`. Deliberately NOT forwarded to
+ * `LivebuyRNBridge.configure(...)` — mirrors `directCloseButtonEnabled`'s
+ * rationale: this flag only affects RN's own `addToCart()` gating logic
+ * (`react-native-ui`'s `DefaultTemplate`, downstream change), not any native
+ * behavior. Default `false` (unlike `directCloseButtonEnabled`'s `true`) —
+ * unchanged existing behavior: the SDK does not proactively block a guest's
+ * add-to-cart. Written by `configure()`, read synchronously by
+ * `isRequireLoginForAddToCartEnabled()`. Every `configure()` call re-derives
+ * this from `options.requireLoginForAddToCart ?? false`, so a later call
+ * always wins over an earlier one (no `_resetForTesting` hook needed).
+ */
+let requireLoginForAddToCart = false;
+
+/**
  * rn-live-now-pill-auto-shopid-turnkey-core — JS-only module state caching
  * the `shopId` last passed to `configure()`. Unlike `directCloseButtonEnabled`,
  * the underlying `shopId` value IS still forwarded to
@@ -1284,6 +1365,10 @@ const LivebuySDK = {
     // in the LivebuyRNBridge.configure(...) positional-argument list below —
     // see the module-level `directCloseButtonEnabled` doc comment for why.
     directCloseButtonEnabled = options.enableDirectCloseButton ?? true;
+    // rn-add-to-cart-login-gate-core: JS-only state, deliberately NOT included
+    // in the LivebuyRNBridge.configure(...) positional-argument list below —
+    // see the module-level `requireLoginForAddToCart` doc comment for why.
+    requireLoginForAddToCart = options.requireLoginForAddToCart ?? false;
     // rn-live-now-pill-auto-shopid-turnkey-core: JS-only cache of the same
     // shopId value still forwarded below — see the module-level
     // `configuredShopId` doc comment for why.
@@ -1340,6 +1425,21 @@ const LivebuySDK = {
    */
   isDirectCloseButtonEnabled(): boolean {
     return directCloseButtonEnabled;
+  },
+
+  /**
+   * Synchronous read of the current `requireLoginForAddToCart` global default
+   * (`rn-add-to-cart-login-gate-core`), most recently set by {@link configure}
+   * (default `false` — including before `configure()` has ever been called).
+   *
+   * **JS-only — never calls the native bridge.**
+   *
+   * Intended consumer: `react-native-ui`'s `DefaultTemplate.addToCart()` reads
+   * this (downstream change `rn-add-to-cart-login-gate-template`) to decide
+   * whether to block locally when the viewer is not logged in.
+   */
+  isRequireLoginForAddToCartEnabled(): boolean {
+    return requireLoginForAddToCart;
   },
 
   /**

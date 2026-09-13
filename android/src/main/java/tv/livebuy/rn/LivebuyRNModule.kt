@@ -1079,6 +1079,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         channel: LBChannel,
         products: List<LBProduct> = emptyList(),
         narratingProduct: LBProduct? = null,
+        viewerCount: Int = 0,
     ) {
         val map = WritableNativeMap().apply {
             putString("publish_at", channel.publishAt)
@@ -1119,6 +1120,13 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             // representative product, reusing the existing product bridge wire shape.
             putArray("products", productsArray(products))
             if (narratingProduct != null) putMap("narrating_product", productToMap(narratingProduct))
+            // rn-viewer-count-bridge-core — additive. Live-updating (moment-state-sourced,
+            // NOT channel-sourced) viewer count, reading the SAME `onMomentStateChange`
+            // callback argument products/narratingProduct above already read
+            // (`state.viewerCount`, native core computed as `channel?.watchNum ?:
+            // momentState.viewerCount`). Raw passthrough only — does not carry the
+            // separate, orthogonal `viewerCountVisible` display-gate flag.
+            putInt("viewer_count", viewerCount)
             // rn-endscreen-next-bridge-core — additive. Next-video navigation entries
             // (`channel.next[]`), feeding the EndScreen 「倒數播放下一支」variant. Unlike
             // `products`/`narratingProduct` above, this IS channel-sourced (same as the other
@@ -1201,6 +1209,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                     putString("reply", c.reply)
                     putString("reply_color", c.replyColor)
                     putString("time", c.time)
+                    putString("kind", c.kind.rawValue)
                 })
             }
         }

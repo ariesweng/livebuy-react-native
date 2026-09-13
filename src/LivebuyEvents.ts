@@ -63,6 +63,9 @@ export interface LBCheckoutCompletedParams {
  * 註：native bridge 對 `params` 採整包泛型透傳（無 per-key allowlist），`award_winner_id`
  * 早已到得了 JS host；RN core **沒有**本事件的 emit / params 組裝程式碼，此 interface 僅為
  * 編譯期型別 / 文件（additive，不影響 runtime）。
+ *
+ * `num`（本次加購件數，見 {@link LBCartAddRequestParams.num}）省略慣例與 `award_winner_id`
+ * 相同——直購路徑帶值、購物車批次結帳（`ids`）路徑整個省略此 key（非退化為 `0`）。
  */
 export interface LBCartAddRequestParams {
   video_id: string;
@@ -93,6 +96,16 @@ export interface LBCartAddRequestParams {
    * SDK **MUST NOT** 因本欄位改變任何計價行為——獎品免費由後端 0 元 SKU 保證。
    */
   award_winner_id?: string;
+  /**
+   * 本次加購的件數，值取自呼叫 `addToCart` 時傳入的 `num` 參數（`addcart` 回應本身不回這個值）。
+   * 型別為真 `number`，不是不透光識別碼慣用的 `string`——host 拿它做「單價 × 數量」算術。
+   *
+   * 省略慣例比照 `award_winner_id`（缺席即語意），**不**比照 `goods_no`/`specification_no`
+   * （後端省略退 `""`、key 恆存在）：直購（`goodsId`）路徑帶 `num`；購物車批次結帳（`ids`）路徑
+   * 沒有單一數量，此 key **整個省略**（`undefined`），MUST NOT 退化成 `0`（`0` 是合法數量）。
+   * 獎品自動加購路徑照樣帶 `num`（值恆為 `1`），與 `award_winner_id` 同時出現。
+   */
+  num?: number;
 }
 export interface LBAuthRequiredParams {
   trigger_action: 'cart_add' | 'comment_send' | 'coupon_claim' | string;
@@ -247,6 +260,14 @@ export interface LBReplayChatComment {
   reply_color: string;
   /** 距影片開始的播放偏移秒數（replay-chat-timeline-sync；additive、向後相容）。 */
   time: string;
+  /**
+   * 對應原生 `LBComment.kind`（`LBMessageKind.rawValue`，fix-rn-comment-kind-wire-priority-core）
+   * ——原生 SDK 已跑完「wire `kind` 優先、缺省才由 `name`/`reply` 推導」規則後的最終分類結果，
+   * 例如 `"host"` / `"host_reply"` / `"comment"` 等；本欄位 MUST NOT 由 JS 端重新推導。
+   * 空字串 `''` 代表原生尚未帶這個欄位（版本落差，例如搭配尚未更新此橋接的舊版原生 binary），
+   * 下游消費端（`react-native-ui` 的 `replayChatRow`）此時應 fallback 到既有的 name/reply 推導規則。
+   */
+  kind: string;
 }
 
 /**

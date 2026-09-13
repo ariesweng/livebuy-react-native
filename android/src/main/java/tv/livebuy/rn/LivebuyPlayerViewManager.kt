@@ -42,6 +42,7 @@ import tv.livebuy.sdk.player.VideoInfoPanel
  * channel-shop-intro-bridge-core-rn added shopIntro; channel-flash-sale-flag-core-rn
  * added isFlashSale; rn-guest-comment-channel-bridge-core added guestComment;
  * rn-moment-products-bridge-core added products/narratingProduct;
+ * rn-viewer-count-bridge-core added viewerCount;
  * rn-endscreen-next-bridge-core added next; rn-channel-notice-bridge-core added
  * notice/sysNotice). Deliberately NOT a whole-[LBChannel] comparison — `LBChannel`
  * carries many more fields (goods, nav, spec, watchNum, …) that have no bearing on
@@ -99,6 +100,11 @@ private data class ChannelInfoSnapshot(
     // or products-list-only change while every channel-derived field stays unchanged.
     val products: List<LBProduct>,
     val narratingProduct: LBProduct?,
+    // rn-viewer-count-bridge-core — additive. Same rationale as `products`/`narratingProduct`
+    // above: sourced from the `onMomentStateChange` callback's own `LBPlayerMomentState`
+    // argument, NOT `channel`. Must stay in sync with LBPlayerChannelInfo's projected
+    // fields, otherwise the dedupe path would miss a viewer-count-only change.
+    val viewerCount: Int,
     // rn-endscreen-next-bridge-core — additive. UNLIKE `products`/`narratingProduct` above,
     // `next` IS derived from `channel` (`channel.next`, same as every other field in this data
     // class) — `LBNavItem` is itself a `data class`, so structural equality is supported
@@ -119,6 +125,7 @@ private data class ChannelInfoSnapshot(
             channel: LBChannel,
             products: List<LBProduct> = emptyList(),
             narratingProduct: LBProduct? = null,
+            viewerCount: Int = 0,
         ) = ChannelInfoSnapshot(
             publishAt = channel.publishAt,
             cover = channel.cover,
@@ -137,6 +144,7 @@ private data class ChannelInfoSnapshot(
             guestComment = channel.guestComment,
             products = products,
             narratingProduct = narratingProduct,
+            viewerCount = viewerCount,
             next = channel.next,
             notice = channel.notice,
             sysNotice = channel.sysNotice,
@@ -193,8 +201,10 @@ internal class LivebuyPlayerViewManager(
             val lastKnown = channelInfoSnapshots[view]
             val products = lastKnown?.products ?: emptyList()
             val narratingProduct = lastKnown?.narratingProduct
-            channelInfoSnapshots[view] = ChannelInfoSnapshot.from(channel, products, narratingProduct)
-            module?.emitChannelChange(channel, products, narratingProduct)
+            // rn-viewer-count-bridge-core — same carry-forward rationale as products/narratingProduct.
+            val viewerCount = lastKnown?.viewerCount ?: 0
+            channelInfoSnapshots[view] = ChannelInfoSnapshot.from(channel, products, narratingProduct, viewerCount)
+            module?.emitChannelChange(channel, products, narratingProduct, viewerCount)
         }
         // rb-react-native-subtitle-channel-info-bridge-core — additive coverage for
         // VOD / upcoming / initial-load channel-info emission, closing the gap
@@ -222,10 +232,10 @@ internal class LivebuyPlayerViewManager(
                 // rn-moment-products-bridge-core — `products`/`narratingProduct` read off THIS
                 // callback's own `state` argument (LBPlayerMomentState), NOT `ch`/`view.channel`
                 // (LBChannel has no such fields — only the load-time-static `channel.goods`).
-                val snapshot = ChannelInfoSnapshot.from(ch, state.products, state.narratingProduct)
+                val snapshot = ChannelInfoSnapshot.from(ch, state.products, state.narratingProduct, state.viewerCount)
                 if (snapshot != channelInfoSnapshots[view]) {
                     channelInfoSnapshots[view] = snapshot
-                    module?.emitChannelChange(ch, state.products, state.narratingProduct)
+                    module?.emitChannelChange(ch, state.products, state.narratingProduct, state.viewerCount)
                 }
             }
         }

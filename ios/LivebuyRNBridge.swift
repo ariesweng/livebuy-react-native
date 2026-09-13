@@ -55,6 +55,17 @@ final class LivebuyRNBridge: RCTEventEmitter {
             // Player channel-info projection for the upcoming chrome data source
             // (snake_case payload `{ publish_at, cover, start, live_status, title }`).
             "LBPlayerChannelInfo",
+            // fix-rn-bridge-unregistered-events: rn-vod-playback-progress-core's
+            // `sendEvent(withName: "LBPlaybackProgressChange", ...)` (below) and
+            // fix-rn-replay-chat-progressive-reveal-core's
+            // `sendEvent(withName: "LBReplayChatRevealed", ...)` were both added without
+            // a matching entry here — RCTEventEmitter hard-crashes (redbox) the FIRST
+            // time either actually fires, since an unregistered event name is a hard
+            // error, not a silent no-op. Discovered while manually verifying the app-root
+            // player mount (rn-sample-carousel-mall-feature-parity's own verification —
+            // unrelated to that change's own code, a pre-existing bridge-registration gap).
+            "LBPlaybackProgressChange",
+            "LBReplayChatRevealed",
         ]
     }
 
@@ -925,7 +936,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
     // — can be omitted without losing type-safety, but callers SHOULD pass the caller's own
     // last-known products/narratingProduct rather than relying on this default, to avoid a
     // transient empty flash on every LIVE 20s settings refresh.
-    func emitChannelChange(_ channel: LBChannel, products: [LBProduct] = [], narratingProduct: LBProduct? = nil) {
+    func emitChannelChange(_ channel: LBChannel, products: [LBProduct] = [], narratingProduct: LBProduct? = nil, viewerCount: Int = 0) {
         var body: [String: Any] = [
             "publish_at": channel.publishAt,
             "cover": channel.cover,
@@ -964,6 +975,13 @@ final class LivebuyRNBridge: RCTEventEmitter {
             // rn-moment-products-bridge-core — additive. Live-updating (moment-state-sourced,
             // NOT channel-sourced) products list, reusing the existing `lbProductToBody` wire shape.
             "products": products.map { lbProductToBody($0) },
+            // rn-viewer-count-bridge-core — additive. Live-updating (moment-state-sourced,
+            // NOT channel-sourced) viewer count, reading the SAME `onMomentStateChange`
+            // callback argument products/narratingProduct above already read
+            // (`state.viewerCount`, native core computed as `channel?.watchNum ??
+            // momentState.viewerCount`). Raw passthrough only — does not carry the
+            // separate, orthogonal `viewerCountVisible` display-gate flag.
+            "viewer_count": viewerCount,
             // rn-endscreen-next-bridge-core — additive. Next-video navigation entries
             // (`channel.next[]`), feeding the EndScreen 「倒數播放下一支」variant. Unlike
             // `products`/`narratingProduct` above, this IS channel-sourced (same as the other
@@ -1025,7 +1043,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 [
                     "text": $0.text, "name": $0.name, "color": $0.color,
                     "reply": $0.reply, "reply_color": $0.replyColor,
-                    "time": $0.time,
+                    "time": $0.time, "kind": $0.kind.rawValue,
                 ]
             },
         ])
@@ -1111,7 +1129,8 @@ private final class BridgeListener: NSObject, LivebuyEventListener {
 /// channel-type-bridge-core-rn added type; channel-shop-intro-bridge-core-rn added
 /// shopIntro; channel-flash-sale-flag-core-rn added isFlashSale;
 /// rn-guest-comment-channel-bridge-core added guestComment; rn-moment-products-bridge-core
-/// added products/narratingProduct; rn-endscreen-next-bridge-core added next;
+/// added products/narratingProduct; rn-viewer-count-bridge-core added viewerCount;
+/// rn-endscreen-next-bridge-core added next;
 /// rn-channel-notice-bridge-core added notice/sysNotice). Deliberately NOT a
 /// whole-`LBChannel` comparison — `LBChannel` carries many more fields (goods, nav,
 /// spec, watchNum, …) that have no bearing on this projection; comparing the full
@@ -1169,6 +1188,11 @@ private struct ChannelInfoSnapshot: Equatable {
     // stored property to be `Equatable`.
     let products: [ProductFingerprint]
     let narratingProduct: ProductFingerprint?
+    // rn-viewer-count-bridge-core — additive. Same rationale as `products`/`narratingProduct`
+    // above: sourced from the `onMomentStateChange` callback's own moment-state argument
+    // (`state.viewerCount`), NOT `channel`. Must stay in sync with LBPlayerChannelInfo's
+    // projected fields, otherwise the dedupe path would miss a viewer-count-only change.
+    let viewerCount: Int
     // rn-endscreen-next-bridge-core — additive. UNLIKE `products`/`narratingProduct` above, `next`
     // IS derived from `channel` (`channel.next`, same as every other field in this struct) — it is
     // simply represented as `[NavItemFingerprint]` rather than raw `[LBNavItem]` because `LBNavItem`
@@ -1183,7 +1207,7 @@ private struct ChannelInfoSnapshot: Equatable {
     let notice: String
     let sysNotice: String
 
-    init(_ channel: LBChannel, products: [LBProduct] = [], narratingProduct: LBProduct? = nil) {
+    init(_ channel: LBChannel, products: [LBProduct] = [], narratingProduct: LBProduct? = nil, viewerCount: Int = 0) {
         publishAt = channel.publishAt
         cover = channel.cover
         start = channel.start
@@ -1201,6 +1225,7 @@ private struct ChannelInfoSnapshot: Equatable {
         guestComment = channel.guestComment
         self.products = products.map(ProductFingerprint.init)
         self.narratingProduct = narratingProduct.map(ProductFingerprint.init)
+        self.viewerCount = viewerCount
         self.next = channel.next.map(NavItemFingerprint.init)
         notice = channel.notice
         sysNotice = channel.sysNotice
@@ -1278,6 +1303,12 @@ final class LivebuyPlayerRNView: UIView {
     // `lastChannelInfoSnapshot`.
     private var lastKnownProducts: [LBProduct] = []
     private var lastKnownNarratingProduct: LBProduct?
+    // rn-viewer-count-bridge-core — same rationale as `lastKnownProducts`/`lastKnownNarratingProduct`
+    // above: `onChannelRefresh` has no moment-state data of its own, so it carries over the last
+    // known `viewerCount` (updated on every `onMomentStateChange` firing) rather than resetting to
+    // `0`, avoiding a transient flash on every LIVE 20s settings refresh. Reset alongside the other
+    // two `lastKnown*` properties.
+    private var lastKnownViewerCount: Int = 0
 
     func load(videoId: String) {
         // VC is created lazily: the React tag (and therefore stable view identity) isn't known at UIView init time.
@@ -1324,8 +1355,10 @@ final class LivebuyPlayerRNView: UIView {
                 // unconditionally on every channel load).
                 let products = self?.lastKnownProducts ?? []
                 let narratingProduct = self?.lastKnownNarratingProduct
-                self?.lastChannelInfoSnapshot = ChannelInfoSnapshot(channel, products: products, narratingProduct: narratingProduct)
-                LivebuyRNBridge.shared?.emitChannelChange(channel, products: products, narratingProduct: narratingProduct)
+                // rn-viewer-count-bridge-core — same carry-forward rationale as products/narratingProduct.
+                let viewerCount = self?.lastKnownViewerCount ?? 0
+                self?.lastChannelInfoSnapshot = ChannelInfoSnapshot(channel, products: products, narratingProduct: narratingProduct, viewerCount: viewerCount)
+                LivebuyRNBridge.shared?.emitChannelChange(channel, products: products, narratingProduct: narratingProduct, viewerCount: viewerCount)
             }
             // rb-react-native-subtitle-channel-info-bridge-core — additive coverage
             // for VOD / upcoming / initial-load channel-info emission, closing the
@@ -1360,10 +1393,14 @@ final class LivebuyPlayerRNView: UIView {
                 // the freshest real product objects to carry forward.
                 self.lastKnownProducts = state.products
                 self.lastKnownNarratingProduct = state.narratingProduct
-                let snapshot = ChannelInfoSnapshot(ch, products: state.products, narratingProduct: state.narratingProduct)
+                // rn-viewer-count-bridge-core — updated on every firing, same as products/narratingProduct
+                // above (independent of the dedup gate below), so onChannelRefresh always has the
+                // freshest carry-forward value.
+                self.lastKnownViewerCount = state.viewerCount
+                let snapshot = ChannelInfoSnapshot(ch, products: state.products, narratingProduct: state.narratingProduct, viewerCount: state.viewerCount)
                 guard snapshot != self.lastChannelInfoSnapshot else { return }
                 self.lastChannelInfoSnapshot = snapshot
-                LivebuyRNBridge.shared?.emitChannelChange(ch, products: state.products, narratingProduct: state.narratingProduct)
+                LivebuyRNBridge.shared?.emitChannelChange(ch, products: state.products, narratingProduct: state.narratingProduct, viewerCount: state.viewerCount)
             }
             // rn-vod-playback-progress-core — channel-info forward (HAND-
             // ALIGNED; not compiled here). Mirrors the other VC callbacks;
@@ -1415,6 +1452,9 @@ final class LivebuyPlayerRNView: UIView {
         // stale products.
         lastKnownProducts = []
         lastKnownNarratingProduct = nil
+        // rn-viewer-count-bridge-core — reset alongside, so a later onChannelRefresh (before the
+        // next onMomentStateChange) does not carry forward a torn-down session's stale viewer count.
+        lastKnownViewerCount = 0
     }
 
     func play()                    { playerVC?.play() }
@@ -1445,6 +1485,8 @@ final class LivebuyPlayerRNView: UIView {
         // rn-moment-products-bridge-core — reset alongside, same rationale.
         lastKnownProducts = []
         lastKnownNarratingProduct = nil
+        // rn-viewer-count-bridge-core — reset alongside, same rationale.
+        lastKnownViewerCount = 0
     }
     func skipStart()                                     { playerVC?.skipStart() }
     func cancelAutoNext()                                { playerVC?.cancelAutoNext() }

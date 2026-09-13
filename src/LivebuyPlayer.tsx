@@ -635,6 +635,7 @@ export function mapReplayChatRevealed(wire: { comments?: unknown }): LBReplayCha
       reply: str(r?.reply),
       reply_color: str(r?.reply_color),
       time: str(r?.time),
+      kind: str(r?.kind),
     };
   });
 }
