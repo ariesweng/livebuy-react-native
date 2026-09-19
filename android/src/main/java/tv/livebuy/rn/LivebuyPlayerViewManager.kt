@@ -411,19 +411,17 @@ internal class LivebuyPlayerViewManager(
             "pause"     -> view.pause()
             "setMuted"  -> view.setMuted(args!!.getBoolean(0))
             "seek"      -> view.seek(args!!.getDouble(0))
-            // MARK: - rn-vod-playback-progress-core follow-up (NOT done here)
-            // "togglePlayPause" / "seekBy" commands are intentionally absent:
-            // `LivebuyPlayerView` (Android core) has no `togglePlayPause()` /
-            // `seekBy(Double)` methods yet — it only has the isReplay-slice
-            // `onPlaybackProgressChange` forward (wired above in
-            // createViewInstance). The JS ref methods dispatch these command
-            // names regardless (iOS-side parity), so on Android they land here
-            // as an unmatched `commandId` and are a silent no-op (no crash, no
-            // RN "Unsupported command" — this `when` has no `else` throw).
-            // Wire real cases here once Android core adds the 1Hz pump /
-            // `togglePlayPause()` / `seekBy()` / `vodScrubAllowed` (see
-            // component-contracts §Player（Android）VOD playback-progress 頻道
-            // — isReplay slice parity's 範圍界定 note).
+            // rn-vod-scrub-seek-tolerance-core: `togglePlayPause`/`seekBy` now
+            // wire directly to Android core's own methods (provided by
+            // android-vod-playback-progress-core-parity, already shipped).
+            // `beginScrub`/`endScrub` are Android-only drag-to-scrub precision
+            // hints (android-vod-scrub-seek-tolerance-template) — the JS ref
+            // methods guard on Platform.OS so these commands never dispatch
+            // on iOS.
+            "togglePlayPause" -> view.togglePlayPause()
+            "seekBy"    -> view.seekBy(args!!.getDouble(0))
+            "beginScrub" -> view.beginScrub()
+            "endScrub"  -> view.endScrub()
             "sendChat"  -> {
                 // Optional eventId (for event-begin chat replies — spec
                 // §LBPushMsg event 欄位 + sendChat extension).

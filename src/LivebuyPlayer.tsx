@@ -181,6 +181,22 @@ export interface LivebuyPlayerCoreRef {
    * {@link vodScrubAllowed} — play/pause is not a VOD-scrub concern.
    */
   togglePlayPause(): void;
+  /**
+   * Drag-to-scrub precision hint: the upcoming drag is starting
+   * (rn-vod-scrub-seek-tolerance-core). **Android-only** — mirrors Android
+   * core's `live-playback-engine` capability (`SeekParameters.CLOSEST_SYNC`
+   * while dragging, restored to `EXACT` on {@link endScrub}). Does NOT
+   * trigger a seek by itself; only affects the precision of subsequent
+   * {@link seek}/{@link seekBy} calls. No-op on non-Android platforms.
+   */
+  beginScrub(): void;
+  /**
+   * Drag-to-scrub precision hint: the drag has ended or was cancelled
+   * (rn-vod-scrub-seek-tolerance-core). **Android-only** — see
+   * {@link beginScrub}'s JSDoc for the full contract. No-op on non-Android
+   * platforms.
+   */
+  endScrub(): void;
   /** Send chat. `eventId` is forwarded as `event_id` to the server for
    *  event-begin chat replies (per spec §LBPushMsg event 欄位). */
   sendChat(message: string, eventId?: number): void;
@@ -452,6 +468,37 @@ export function dispatchNotifyPipModeChanged(
 ): void {
   if (platformOS !== 'android') return;
   dispatch('notifyPictureInPictureModeChanged', [isInPictureInPictureMode]);
+}
+
+/**
+ * rn-vod-scrub-seek-tolerance-core — Android-only drag-to-scrub precision
+ * hints. Mirrors Android core's `live-playback-engine` capability
+ * (`beginScrub()`/`endScrub()` on `ExoPlaybackEngine`, toggling
+ * `SeekParameters` between `CLOSEST_SYNC` and `EXACT`). The iOS RN
+ * ViewManager does NOT register these commands — dispatching them on iOS
+ * would be an RN "Unsupported command". Mirrors the Flutter Dart platform
+ * guard (`defaultTargetPlatform != TargetPlatform.android`) and this file's
+ * own `dispatchNotifyPipModeChanged` guard shape.
+ *
+ * Exported for testing — like `dispatchNotifyPipModeChanged`, the native
+ * `.kt`/`.swift` bridge does not compile in this repo, so this pure guard is
+ * the acceptance gate.
+ */
+export function dispatchBeginScrub(
+  platformOS: string,
+  dispatch: (cmd: string, args: unknown[]) => void,
+): void {
+  if (platformOS !== 'android') return;
+  dispatch('beginScrub', []);
+}
+
+/** See {@link dispatchBeginScrub}'s doc for the full contract. */
+export function dispatchEndScrub(
+  platformOS: string,
+  dispatch: (cmd: string, args: unknown[]) => void,
+): void {
+  if (platformOS !== 'android') return;
+  dispatch('endScrub', []);
 }
 
 /**
@@ -761,6 +808,11 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
       seekBy: (delta: number) =>
         dispatchSeekByIfAllowed(dispatch, latestLiveStatusRef.current, latestDurationRef.current, delta),
       togglePlayPause: () => dispatch('togglePlayPause', []),
+      // rn-vod-scrub-seek-tolerance-core: Android-only drag-to-scrub
+      // precision hints — see `dispatchBeginScrub`'s JSDoc for the full
+      // contract (no-op on non-Android platforms).
+      beginScrub: () => dispatchBeginScrub(Platform.OS, dispatch),
+      endScrub: () => dispatchEndScrub(Platform.OS, dispatch),
       sendChat: (message: string, eventId?: number) =>
         dispatch('sendChat', eventId != null ? [message, eventId] : [message]),
       skipStart: () => dispatch('skipStart', []),
