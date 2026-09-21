@@ -128,7 +128,7 @@ dependencies {
     // point-in-time snapshot, not a moving target — it WILL drift again whenever core
     // cuts a new published version; bump it the same way when that happens, don't
     // assume the literal version above stays current.
-    implementation "tv.livebuy:livebuy:4.19.0"
+    implementation "tv.livebuy:livebuy:4.21.2"
 
     // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
     // MainScope / launch). The core SDK pulls it transitively but as `implementation`,

@@ -37,6 +37,18 @@ object AutoPipPolicy {
     fun shouldEnterPiP(sdkInt: Int, pipSupported: Boolean, requested: Boolean): Boolean =
         requested && sdkInt >= API_O && pipSupported
 
+    /**
+     * Whether the bridge should write `setAutoEnterEnabled(false)` back onto the host Activity
+     * when the wrapped view is disposed (android-bridge-auto-pip-disarm-on-dispose-core).
+     * Auto-enter is a property of the ACTIVITY, not of the view: without this, a disposed player
+     * leaves `setAutoEnterEnabled(true)` behind and the user's next Home press pushes whatever the
+     * app is showing (e.g. a store home screen) into the PiP window. Only disarms what the bridge
+     * itself armed (`armed` = the arm write actually landed) — never touches host-owned params —
+     * and only on API 31+, the only level where the arm exists.
+     */
+    fun shouldDisarmOnDispose(sdkInt: Int, armed: Boolean): Boolean =
+        armed && sdkInt >= API_S
+
     /** Whether a `PIP_STATE_CHANGE` event's params asked the host to enter PiP. */
     fun isPipRequested(params: Map<String, Any>): Boolean =
         params["requested"] == true
