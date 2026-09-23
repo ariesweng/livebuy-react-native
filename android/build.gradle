@@ -106,29 +106,44 @@ dependencies {
     // player.VideoInfoPanel / widget.FloatingWidget / widget.LivebuyWidget) — all in
     // the core `:livebuy` module, NONE in :livebuy-ui / :livebuy-reference-ui. So a
     // single `tv.livebuy:livebuy` dependency is sufficient (RN has its own TypeScript
-    // reference-ui). Version aligns the Android remote channel (LIVEBUY_MAVEN_VERSION,
-    // currently 4.19.0 — the current official published version, iOS/Android lockstep,
-    // git tag `android-v4.19.0`) and MUST be a PUBLISHED channel version whose core
-    // artifact carries the bridge's full core API surface, INCLUDING the post-rename
-    // class names `tv.livebuy.sdk.LivebuySDK` / `tv.livebuy.sdk.player.LivebuyPlayerView`
-    // (2026-07-16 brand-casing rename, commit c140f4bf; any channel version published
-    // before that commit — including the very first pin 3.2.0 — still resolves to the
-    // pre-rename `LiveBuySDK` / `LiveBuyPlayerView` class names and fails a consumer's
-    // `import tv.livebuy.sdk.LivebuySDK` line even though this module's own Kotlin
-    // source compiles fine against monorepo HEAD). The previous bump (4.17.0 -> 4.18.0)
-    // closed a real symbol gap (`LivebuyPlayerView.isMuted`, already called by this
-    // bridge's `LivebuyRNModule.isMuted(reactTag, promise)`). THIS bump (4.18.0 ->
-    // 4.19.0) is back to routine version tracking against a core release with ZERO
-    // impact on this bridge: `[4.19.0]`'s core items — `requireLoginForAddToCart`
-    // (pure JS/TS-side gate, never reaches native) and `CART_ADD_REQUEST.num` (RN
-    // forwards notification-event params generically, no per-key bridge mapping to
-    // update) — are both additive and neither is referenced anywhere under this
-    // module's Kotlin source. Do NOT pin the core-internal `defaultConfig.versionName`
+    // reference-ui). Do NOT pin the core-internal `defaultConfig.versionName`
     // (1.3.0 — X-SDK-Version only, not published to the channel). This pin is a
     // point-in-time snapshot, not a moving target — it WILL drift again whenever core
     // cuts a new published version; bump it the same way when that happens, don't
     // assume the literal version above stays current.
-    implementation "tv.livebuy:livebuy:4.21.2"
+    //
+    // Current pin: 4.22.0 (rn-android-bridge-core-pin-4-22-0) — bumped from 4.21.2.
+    //
+    // ⚠️ THIS IS A REGRESSION FIX, NOT ROUTINE VERSION TRACKING (same failure class as
+    // the Flutter sibling's 4.21.2 → 4.22.0 bump, commit 7c1247399,
+    // flutter-android-bridge-core-pin-4-22-0). The prior pin (4.21.2) was already
+    // compile-broken against this bridge's own HEAD Kotlin source for any consumer
+    // resolving the real published remote artifact:
+    //   - `LBPlayerMomentState.liveDurationSeconds` (Int?, read at
+    //     `LivebuyPlayerViewManager.kt` — `state.liveDurationSeconds`) — introduced in
+    //     android-v4.22.0 (commit a986ed566, endscreen-live-duration-android-core); NOT
+    //     present in android-v4.21.2. This bridge reference landed via commit 1eeb7bba9
+    //     (rb-rn-endscreen-live-duration) — HEAD's bridge source has been compile-broken
+    //     against the real 4.21.2 remote AAR since that commit, only masked because
+    //     monorepo CI/local builds always publish `:livebuy` to mavenLocal from HEAD
+    //     source under this same coordinate string, never the real remote artifact.
+    //   - `playerView.togglePlayPause()` / `seek()` / `seekBy()` / progress reporting
+    //     did not correctly route to the intro engine during intro (MP4 preroll)
+    //     playback — fixed by android-v4.22.0 (commit 8245bb849,
+    //     android-intro-player-seek-progress-core). Behavior floor, not a compile-time
+    //     symbol floor — affects this bridge's `rb-rn-intro-progress-bar-interactive`
+    //     feature the same way it affected the Flutter sibling (user-reported bug,
+    //     silent no-op play/pause and drag-to-seek during intro).
+    //
+    // Prior pin history: 4.19.0 (routine) → 4.21.2 (ad-hoc bump, commit a71b45e05,
+    // docs(rn-flutter-release-prep), 2026-09-21 — closed a two-version drift and
+    // unblocked `PIP_STATE_CHANGE` delivery for `rn-android-pip-hide-chrome-
+    // reference-ui`) → 4.22.0 (this bump).
+    //
+    // ⚠️ THIS PIN WILL GO STALE AGAIN — read before bumping it (or trusting it).
+    // Always re-check bridge Kotlin source against the target version's CHANGELOG for
+    // new public API the bridge already references, not just "did core change at all".
+    implementation "tv.livebuy:livebuy:4.22.0"
 
     // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
     // MainScope / launch). The core SDK pulls it transitively but as `implementation`,

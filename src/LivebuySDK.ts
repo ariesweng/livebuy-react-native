@@ -728,6 +728,19 @@ export interface LBPlayerChannelInfo {
    */
   viewerCount: number;
   /**
+   * How many seconds this LIVE has played so far, RAW seconds, NOT formatted
+   * (`rb-rn-endscreen-live-duration`). Same moment-state-sourced data path as
+   * {@link products}/{@link narratingProduct}/{@link viewerCount} above (NOT derived
+   * from `channel` — read off the `onMomentStateChange` callback's own moment-state
+   * argument, which native core computes as `StatContextStore.liveTime(videoId:)` /
+   * `StatReporter.liveTime(...)`, source `/sdk/video/goods` response `live_time`).
+   * `null` when no goods poll has landed yet for this video, or the native binary is
+   * older than `endscreen-live-duration-ios-core`/`endscreen-live-duration-android-core`
+   * — distinct from a genuine `0`. This layer does NOT format this into `"HH:MM:SS"` —
+   * that is a reference-ui concern (mirrors `next[].duration`'s raw-seconds convention).
+   */
+  liveDurationSeconds: number | null;
+  /**
    * Next-video navigation entries (`channel.next[]`, wire key `next`) — feeds the
    * EndScreen「倒數播放下一支」variant (rn-endscreen-next-bridge-core). `[]` when
    * absent / the channel has no next video. UNLIKE {@link products}/
@@ -786,6 +799,10 @@ export interface LBPlayerChannelInfo {
  *     `0` (conservative default — a plain counter, not a tri-state flag, so there is no
  *     `-1` unknown-sentinel need) — see {@link coerceViewerCount}
  *     (rn-viewer-count-bridge-core).
+ *   - `live_duration_seconds`: Number OR a stringified Int is tolerated; missing / null /
+ *     unparseable → `null` (distinct from a genuine `0` — mirrors core's own `nil`
+ *     semantics, NOT `viewer_count`'s `0` conservative-counter convention) — see
+ *     {@link coerceLiveDurationSeconds} (rb-rn-endscreen-live-duration).
  *   - `next`: missing / null / non-Array → `[]` (rn-endscreen-next-bridge-core). UNLIKE
  *     `products`/`narrating_product` above, this field IS channel-sourced (same data
  *     path as every string/number field above it). Per-entry tolerance: an entry
@@ -813,6 +830,7 @@ export function mapPlayerChannelInfo(wire: {
   products?: LBProduct[] | null;
   narrating_product?: LBProduct | null;
   viewer_count?: number | string | null;
+  live_duration_seconds?: number | string | null;
   next?: unknown;
   notice?: string | null;
   sys_notice?: string | null;
@@ -836,6 +854,7 @@ export function mapPlayerChannelInfo(wire: {
     products: Array.isArray(wire.products) ? wire.products : [],
     narratingProduct: wire.narrating_product ?? null,
     viewerCount: coerceViewerCount(wire.viewer_count),
+    liveDurationSeconds: coerceLiveDurationSeconds(wire.live_duration_seconds),
     next: mapNavItems(wire.next),
     notice: wire.notice ?? '',
     sysNotice: wire.sys_notice ?? '',
@@ -985,6 +1004,26 @@ function coerceViewerCount(value: number | string | null | undefined): number {
     return Number.isNaN(n) ? 0 : n;
   }
   return 0;
+}
+
+/**
+ * Coerce a wire `live_duration_seconds` to a nullable number. Absent / null /
+ * unparseable → `null` (rb-rn-endscreen-live-duration) — UNLIKE
+ * {@link coerceViewerCount}'s `0` conservative-counter default, this field
+ * distinguishes "no value yet" from a genuine `0` (mirrors core's own
+ * `LBPlayerMomentState.liveDurationSeconds: Int?` `nil` semantics). Tolerates a
+ * Number (native emit) OR a stringified Int (defensive), mirroring
+ * `coerceViewerCount`'s shape. Sourced from the `onMomentStateChange` callback's
+ * own moment-state argument (NOT `channel`) — mirrors `products`/`narratingProduct`/
+ * `viewerCount`'s data-source split.
+ */
+function coerceLiveDurationSeconds(value: number | string | null | undefined): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const n = Number.parseInt(value, 10);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
 }
 
 // MARK: - VOD playback progress (rn-vod-playback-progress-core)

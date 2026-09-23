@@ -1080,6 +1080,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         products: List<LBProduct> = emptyList(),
         narratingProduct: LBProduct? = null,
         viewerCount: Int = 0,
+        liveDurationSeconds: Int? = null,
     ) {
         val map = WritableNativeMap().apply {
             putString("publish_at", channel.publishAt)
@@ -1127,6 +1128,14 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             // momentState.viewerCount`). Raw passthrough only — does not carry the
             // separate, orthogonal `viewerCountVisible` display-gate flag.
             putInt("viewer_count", viewerCount)
+            // rb-rn-endscreen-live-duration — additive. Live-updating (moment-state-sourced, NOT
+            // channel-sourced) raw live-duration seconds, reading the SAME `onMomentStateChange`
+            // callback argument products/narratingProduct/viewerCount above already read
+            // (`state.liveDurationSeconds`, native core computed as
+            // `StatReporter.shared.liveTime(videoId)`). `null` (no goods poll landed yet) omits
+            // the key entirely — mirrors `narrating_product`'s optional-key convention, distinct
+            // from `viewer_count`'s always-present `0` default.
+            if (liveDurationSeconds != null) putInt("live_duration_seconds", liveDurationSeconds)
             // rn-endscreen-next-bridge-core — additive. Next-video navigation entries
             // (`channel.next[]`), feeding the EndScreen 「倒數播放下一支」variant. Unlike
             // `products`/`narratingProduct` above, this IS channel-sourced (same as the other

@@ -52,4 +52,28 @@ object AutoPipPolicy {
     /** Whether a `PIP_STATE_CHANGE` event's params asked the host to enter PiP. */
     fun isPipRequested(params: Map<String, Any>): Boolean =
         params["requested"] == true
+
+    /**
+     * Whether the bridge should pause playback on `onActivityStopped`
+     * (rn-android-pause-on-background-core). Real-device evidence (`dumpsys activity
+     * activities`, `finishing=false`) proved the system PiP overlay's close(X) button does NOT
+     * call `Activity.finish()` — it only demotes the Activity to `STOPPED`, the exact same
+     * transition as a plain Home-press backgrounding. `isInPiP` MUST be the Activity's ACTUAL
+     * current PiP state (`activity.isInPictureInPictureMode`), not device PiP capability: a
+     * genuine OS-PiP session must keep playing (the PiP thumbnail needs a live frame), while by
+     * the time close(X) delivers `onActivityStopped`, `isInPictureInPictureMode` has already
+     * flipped to `false` — so this single check covers both the plain-background and the
+     * PiP-close(X) triggers without a dedicated close-specific branch. Mirrors the Flutter
+     * sibling change's `tv.livebuy.flutter.AutoPipPolicy.shouldPauseOnStop`.
+     */
+    fun shouldPauseOnStop(isInPiP: Boolean, wasPlaying: Boolean): Boolean =
+        !isInPiP && wasPlaying
+
+    /**
+     * Whether the bridge should resume playback on `onActivityStarted`
+     * (rn-android-pause-on-background-core). Only resumes a pause THIS forwarder caused — never
+     * overrides a pause the user or host caused independently.
+     */
+    fun shouldResumeOnStart(pausedByThis: Boolean): Boolean =
+        pausedByThis
 }

@@ -687,6 +687,64 @@ export function mapReplayChatRevealed(wire: { comments?: unknown }): LBReplayCha
   });
 }
 
+/**
+ * rn-player-core-load-mount-race-core — decide what a mount-time / prop-change
+ * dispatch attempt (`LivebuyPlayerCore`'s `load`, `LivebuyWidgetCore`'s
+ * `configure`) should do, gated on whether the wrapped native view has
+ * ALREADY confirmed itself alive via its own first `onLayout` (`viewReady`).
+ *
+ * `viewReady` true → dispatch `cmd` immediately (the common case: the native
+ * view is already known-good, e.g. every `videoId`/`shopId` change AFTER the
+ * component's first `onLayout`) and return `null` (nothing left pending).
+ *
+ * `viewReady` false → do NOT dispatch. `UIManager.dispatchViewManagerCommand`
+ * is fire-and-forget with no ack, and a single unconfirmed attempt is the
+ * root structural weakness this change closes (see design.md「根因查證」):
+ * `findNodeHandle(nativeRef.current) != null` only proves React finished
+ * assigning the JS ref — it does NOT prove the native view instance was
+ * actually created (`ViewManager.createViewInstance`) and is part of a live,
+ * command-receiving hierarchy. Returns `arg` so the caller can stash it as
+ * pending and let {@link flushPendingDispatch} resend it once `onLayout`
+ * supplies that stronger, native-round-trip confirmation.
+ *
+ * Exported for testing — like `dispatchNotifyPipModeChanged`, the native
+ * `.kt`/`.swift` bridge does not compile in this repo, so this pure gate is
+ * the JS-side acceptance gate.
+ */
+export function dispatchOnceViewReady(
+  viewReady: boolean,
+  cmd: string,
+  arg: string,
+  dispatch: (cmd: string, args: unknown[]) => void,
+): string | null {
+  if (viewReady) {
+    dispatch(cmd, [arg]);
+    return null;
+  }
+  return arg;
+}
+
+/**
+ * rn-player-core-load-mount-race-core — flush a pending dispatch queued by
+ * {@link dispatchOnceViewReady}. Called from the wrapped native view's first
+ * `onLayout` (the native→JS round-trip confirmation the view genuinely
+ * exists — see `dispatchOnceViewReady`'s JSDoc). A no-op when nothing is
+ * pending (`pendingArg == null`), including every `onLayout` firing AFTER the
+ * first one (the caller only invokes this while the view is not yet
+ * confirmed ready — see each component's `handleNativeLayout`).
+ *
+ * Exported for testing — same pattern as `dispatchOnceViewReady`.
+ */
+export function flushPendingDispatch(
+  cmd: string,
+  pendingArg: string | null,
+  dispatch: (cmd: string, args: unknown[]) => void,
+): void {
+  if (pendingArg != null) {
+    dispatch(cmd, [pendingArg]);
+  }
+}
+
 const NATIVE_VIEW = 'LivebuyPlayerView';
 const NativePlayerView = requireNativeComponent<any>(NATIVE_VIEW);
 const { LivebuyRNBridge } = NativeModules;
@@ -711,6 +769,14 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
 
     const nativeRef = useRef<any>(null);
 
+    // rn-player-core-load-mount-race-core — `viewReadyRef` flips true on the
+    // wrapped native view's first `onLayout` (see `handleNativeLayout` below);
+    // `pendingLoadRef` holds a `load` attempt made before that confirmation,
+    // to be flushed exactly once when it arrives. See `dispatchOnceViewReady`
+    // / `flushPendingDispatch`'s JSDoc above for the full rationale.
+    const viewReadyRef = useRef(false);
+    const pendingLoadRef = useRef<string | null>(null);
+
     // rn-vod-playback-progress-core — latest known channel `liveStatus` /
     // playback `duration`, tracked purely for the `vodScrubAllowed` gate below
     // (not exposed as component state; the host reads these via the
@@ -728,10 +794,31 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
       }
     };
 
-    // Load when videoId changes; release on unmount.
+    // Load when videoId changes (including the first mount); release on
+    // unmount. rn-player-core-load-mount-race-core: the dispatch attempt is
+    // gated on `viewReadyRef` — if the wrapped native view has not yet
+    // confirmed itself alive via `onLayout`, the attempt is stashed as
+    // pending instead of being sent (and possibly silently lost with no
+    // retry — the bug this change fixes) — see `handleNativeLayout` below for
+    // where it gets flushed.
     useEffect(() => {
-      dispatch('load', [videoId]);
+      pendingLoadRef.current = dispatchOnceViewReady(viewReadyRef.current, 'load', videoId, dispatch);
     }, [videoId]);
+
+    // rn-player-core-load-mount-race-core — fires on the native
+    // `LivebuyPlayerView`'s own first `onLayout`: the earliest JS-observable,
+    // native-round-trip confirmation that the native view instance genuinely
+    // exists (stronger than `nativeRef.current`/`findNodeHandle` being
+    // non-null — see `dispatchOnceViewReady`'s JSDoc). Flushes at most once
+    // (guarded by `viewReadyRef`); every later `onLayout` — e.g. a resize —
+    // is a no-op here.
+    const handleNativeLayout = () => {
+      if (!viewReadyRef.current) {
+        viewReadyRef.current = true;
+        flushPendingDispatch('load', pendingLoadRef.current, dispatch);
+        pendingLoadRef.current = null;
+      }
+    };
 
     useEffect(() => {
       return () => {
@@ -936,6 +1023,9 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
     return (
       <NativePlayerView
         ref={nativeRef}
+        // rn-player-core-load-mount-race-core — native-view-ready confirmation;
+        // see `handleNativeLayout`'s JSDoc above.
+        onLayout={handleNativeLayout}
         style={[styles.fill, style]}
         videoId={videoId}
         showChat={showChat}
@@ -1064,13 +1154,31 @@ export function mapWidgetSettings(wire: {
 export const LivebuyWidgetCore = forwardRef<LivebuyWidgetCoreRef, LivebuyWidgetCoreProps>(
   ({ shopId, onWidgetResponse, style }, ref) => {
     const nativeRef = useRef<any>(null);
+    // rn-player-core-load-mount-race-core — same ready-gating as
+    // `LivebuyPlayerCore.load`; see that component + `dispatchOnceViewReady`'s
+    // JSDoc for the full rationale (identical one-shot mount-time dispatch
+    // pattern on the same underlying bridge).
+    const viewReadyRef = useRef(false);
+    const pendingConfigureRef = useRef<string | null>(null);
 
     const dispatch = (cmd: string, args: unknown[] = []) => {
       const tag = findNodeHandle(nativeRef.current);
       if (tag != null) UIManager.dispatchViewManagerCommand(tag, cmd, args);
     };
 
-    useEffect(() => { dispatch('configure', [shopId]); }, [shopId]);
+    useEffect(() => {
+      pendingConfigureRef.current = dispatchOnceViewReady(viewReadyRef.current, 'configure', shopId, dispatch);
+    }, [shopId]);
+
+    // rn-player-core-load-mount-race-core — see `LivebuyPlayerCore`'s
+    // `handleNativeLayout` JSDoc for the full contract.
+    const handleNativeLayout = () => {
+      if (!viewReadyRef.current) {
+        viewReadyRef.current = true;
+        flushPendingDispatch('configure', pendingConfigureRef.current, dispatch);
+        pendingConfigureRef.current = null;
+      }
+    };
 
     // widget-bridge-color-core / widget-product-card-bridge-rn — subscribe to the
     // widget-response event. The native widget view emits `LBWidgetResponse` with a
@@ -1098,7 +1206,14 @@ export const LivebuyWidgetCore = forwardRef<LivebuyWidgetCoreRef, LivebuyWidgetC
         dispatch('simulateCardVisibilityChanged', [video, visible]),
     }));
 
-    return <NativeWidgetView ref={nativeRef} shopId={shopId} style={[styles.fill, style]} />;
+    return (
+      <NativeWidgetView
+        ref={nativeRef}
+        onLayout={handleNativeLayout}
+        shopId={shopId}
+        style={[styles.fill, style]}
+      />
+    );
   }
 );
 

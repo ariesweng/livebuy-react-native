@@ -26,6 +26,7 @@ import tv.livebuy.sdk.models.LBChannel
 import tv.livebuy.sdk.models.LBHotItem
 import tv.livebuy.sdk.models.LBNavItem
 import tv.livebuy.sdk.models.LBPlaybackProgress
+import tv.livebuy.sdk.models.LBPlayerState
 import tv.livebuy.sdk.models.LBProduct
 import tv.livebuy.sdk.models.LBSpec
 import tv.livebuy.sdk.models.LBSpecOption
@@ -105,6 +106,12 @@ private data class ChannelInfoSnapshot(
     // argument, NOT `channel`. Must stay in sync with LBPlayerChannelInfo's projected
     // fields, otherwise the dedupe path would miss a viewer-count-only change.
     val viewerCount: Int,
+    // rb-rn-endscreen-live-duration — additive. Same rationale as `viewerCount` above: sourced
+    // from the `onMomentStateChange` callback's own `LBPlayerMomentState` argument
+    // (`state.liveDurationSeconds`), NOT `channel`. Must stay in sync with LBPlayerChannelInfo's
+    // projected fields, otherwise the dedupe path would miss a live-duration-only change (a
+    // goods poll landing a fresh `live_time` value while every other field stays unchanged).
+    val liveDurationSeconds: Int?,
     // rn-endscreen-next-bridge-core — additive. UNLIKE `products`/`narratingProduct` above,
     // `next` IS derived from `channel` (`channel.next`, same as every other field in this data
     // class) — `LBNavItem` is itself a `data class`, so structural equality is supported
@@ -126,6 +133,7 @@ private data class ChannelInfoSnapshot(
             products: List<LBProduct> = emptyList(),
             narratingProduct: LBProduct? = null,
             viewerCount: Int = 0,
+            liveDurationSeconds: Int? = null,
         ) = ChannelInfoSnapshot(
             publishAt = channel.publishAt,
             cover = channel.cover,
@@ -145,6 +153,7 @@ private data class ChannelInfoSnapshot(
             products = products,
             narratingProduct = narratingProduct,
             viewerCount = viewerCount,
+            liveDurationSeconds = liveDurationSeconds,
             next = channel.next,
             notice = channel.notice,
             sysNotice = channel.sysNotice,
@@ -203,8 +212,10 @@ internal class LivebuyPlayerViewManager(
             val narratingProduct = lastKnown?.narratingProduct
             // rn-viewer-count-bridge-core — same carry-forward rationale as products/narratingProduct.
             val viewerCount = lastKnown?.viewerCount ?: 0
-            channelInfoSnapshots[view] = ChannelInfoSnapshot.from(channel, products, narratingProduct, viewerCount)
-            module?.emitChannelChange(channel, products, narratingProduct, viewerCount)
+            // rb-rn-endscreen-live-duration — same carry-forward rationale as viewerCount above.
+            val liveDurationSeconds = lastKnown?.liveDurationSeconds
+            channelInfoSnapshots[view] = ChannelInfoSnapshot.from(channel, products, narratingProduct, viewerCount, liveDurationSeconds)
+            module?.emitChannelChange(channel, products, narratingProduct, viewerCount, liveDurationSeconds)
         }
         // rb-react-native-subtitle-channel-info-bridge-core — additive coverage for
         // VOD / upcoming / initial-load channel-info emission, closing the gap
@@ -232,10 +243,14 @@ internal class LivebuyPlayerViewManager(
                 // rn-moment-products-bridge-core — `products`/`narratingProduct` read off THIS
                 // callback's own `state` argument (LBPlayerMomentState), NOT `ch`/`view.channel`
                 // (LBChannel has no such fields — only the load-time-static `channel.goods`).
-                val snapshot = ChannelInfoSnapshot.from(ch, state.products, state.narratingProduct, state.viewerCount)
+                val snapshot = ChannelInfoSnapshot.from(
+                    ch, state.products, state.narratingProduct, state.viewerCount, state.liveDurationSeconds
+                )
                 if (snapshot != channelInfoSnapshots[view]) {
                     channelInfoSnapshots[view] = snapshot
-                    module?.emitChannelChange(ch, state.products, state.narratingProduct, state.viewerCount)
+                    module?.emitChannelChange(
+                        ch, state.products, state.narratingProduct, state.viewerCount, state.liveDurationSeconds
+                    )
                 }
             }
         }
@@ -319,12 +334,36 @@ internal class LivebuyPlayerViewManager(
         // onHostPause) is chosen because onPause fires on ANY focus loss (e.g. a dialog) — too
         // wide, would wrongly enter PiP. Framework ActivityLifecycleCallbacks avoids any
         // androidx.lifecycle dependency on this bridge module.
+        //
+        // rn-android-pause-on-background-core: the SAME onActivityStopped/onActivityStarted pair
+        // also forwards pause()/play() — real-device evidence (`dumpsys activity activities`,
+        // `finishing=false`) proved the system PiP overlay's close(X) button does NOT call
+        // `Activity.finish()`, it only demotes the Activity to STOPPED, identical to a plain
+        // Home-press backgrounding. Before this, nothing in the bridge ever called pause() on
+        // backgrounding, so playback (and the underlying engine/process) ran indefinitely.
+        // `pausedByBackground` tracks whether THIS forwarder caused the pause, so
+        // onActivityStarted only auto-resumes a pause it caused itself — never overrides a pause
+        // the user/host caused independently. Mirrors native Android reference-ui's
+        // `PauseOnBackground` (`LivebuyPlayer.kt`) and the Flutter sibling change.
+        var pausedByBackground = false
         val lifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
             override fun onActivityStopped(a: Activity) {
-                if (a === activity) view.requestAutoPiP()
+                if (a !== activity) return
+                view.requestAutoPiP()
+                val wasPlaying = view.playerState == LBPlayerState.PLAYING
+                if (AutoPipPolicy.shouldPauseOnStop(isInPiP = a.isInPictureInPictureMode, wasPlaying = wasPlaying)) {
+                    view.pause()
+                    pausedByBackground = true
+                }
+            }
+            override fun onActivityStarted(a: Activity) {
+                if (a !== activity) return
+                if (AutoPipPolicy.shouldResumeOnStart(pausedByThis = pausedByBackground)) {
+                    view.play()
+                }
+                pausedByBackground = false
             }
             override fun onActivityCreated(a: Activity, savedInstanceState: Bundle?) {}
-            override fun onActivityStarted(a: Activity) {}
             override fun onActivityResumed(a: Activity) {}
             override fun onActivityPaused(a: Activity) {}
             override fun onActivitySaveInstanceState(a: Activity, outState: Bundle) {}
