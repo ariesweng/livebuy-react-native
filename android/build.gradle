@@ -112,38 +112,39 @@ dependencies {
     // cuts a new published version; bump it the same way when that happens, don't
     // assume the literal version above stays current.
     //
-    // Current pin: 4.22.0 (rn-android-bridge-core-pin-4-22-0) — bumped from 4.21.2.
+    // Current pin: 4.23.0 (rn-android-bridge-core-pin-4-23-0) — bumped from 4.22.0.
     //
     // ⚠️ THIS IS A REGRESSION FIX, NOT ROUTINE VERSION TRACKING (same failure class as
-    // the Flutter sibling's 4.21.2 → 4.22.0 bump, commit 7c1247399,
-    // flutter-android-bridge-core-pin-4-22-0). The prior pin (4.21.2) was already
-    // compile-broken against this bridge's own HEAD Kotlin source for any consumer
-    // resolving the real published remote artifact:
-    //   - `LBPlayerMomentState.liveDurationSeconds` (Int?, read at
-    //     `LivebuyPlayerViewManager.kt` — `state.liveDurationSeconds`) — introduced in
-    //     android-v4.22.0 (commit a986ed566, endscreen-live-duration-android-core); NOT
-    //     present in android-v4.21.2. This bridge reference landed via commit 1eeb7bba9
-    //     (rb-rn-endscreen-live-duration) — HEAD's bridge source has been compile-broken
-    //     against the real 4.21.2 remote AAR since that commit, only masked because
-    //     monorepo CI/local builds always publish `:livebuy` to mavenLocal from HEAD
-    //     source under this same coordinate string, never the real remote artifact.
-    //   - `playerView.togglePlayPause()` / `seek()` / `seekBy()` / progress reporting
-    //     did not correctly route to the intro engine during intro (MP4 preroll)
-    //     playback — fixed by android-v4.22.0 (commit 8245bb849,
-    //     android-intro-player-seek-progress-core). Behavior floor, not a compile-time
-    //     symbol floor — affects this bridge's `rb-rn-intro-progress-bar-interactive`
-    //     feature the same way it affected the Flutter sibling (user-reported bug,
-    //     silent no-op play/pause and drag-to-seek during intro).
+    // every prior bump in this comment's history, and the same failure class as the
+    // Flutter sibling's 4.22.0 → 4.23.0 bump, flutter-android-bridge-core-pin-4-23-0).
+    // The prior pin (4.22.0) was already compile-broken against this bridge's own HEAD
+    // Kotlin source for any consumer resolving the real published remote artifact —
+    // and this one shipped LIVE in the real published `livebuy-react-native` v2.7.0
+    // release before being caught (patched forward to v2.7.1, this pin bump is the
+    // fix; v2.7.0 cannot be overwritten once published):
+    //   - `LivebuyPlayerView.load(videoId: String, startAt: Double?)` (the two-arg
+    //     overload; `4.22.0` only has the one-arg `load(String)`) — called
+    //     unconditionally at `LivebuyPlayerViewManager.kt:482`
+    //     (`view.load(videoId, startAt)`) for every "load" command, landed via commit
+    //     08a97e060 (rn-player-load-initial-seek-core). Confirmed by downloading both
+    //     real published AARs and running `javap` on
+    //     `tv.livebuy.sdk.player.LivebuyPlayerView`: `4.22.0` has only
+    //     `load(java.lang.String)`; `4.23.0` adds `load(java.lang.String,
+    //     java.lang.Double)`. Introduced in android-v4.23.0 (commit 63ecf6fbf,
+    //     android-player-load-initial-seek-core); NOT present in android-v4.22.0.
     //
     // Prior pin history: 4.19.0 (routine) → 4.21.2 (ad-hoc bump, commit a71b45e05,
-    // docs(rn-flutter-release-prep), 2026-09-21 — closed a two-version drift and
-    // unblocked `PIP_STATE_CHANGE` delivery for `rn-android-pip-hide-chrome-
-    // reference-ui`) → 4.22.0 (this bump).
+    // docs(rn-flutter-release-prep), 2026-09-21) → 4.22.0 (rn-android-bridge-core-
+    // pin-4-22-0, fixed `liveDurationSeconds` + intro-engine seek/pause routing) →
+    // 4.23.0 (this bump).
     //
     // ⚠️ THIS PIN WILL GO STALE AGAIN — read before bumping it (or trusting it).
     // Always re-check bridge Kotlin source against the target version's CHANGELOG for
     // new public API the bridge already references, not just "did core change at all".
-    implementation "tv.livebuy:livebuy:4.22.0"
+    // Before the NEXT `livebuy-react-native` release (real `--yes` publish, not
+    // `--dry-run`), re-verify this pin against the real remote AAR the same way this
+    // fix did — do not trust mavenLocal-from-HEAD compile success as proof.
+    implementation "tv.livebuy:livebuy:4.23.0"
 
     // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
     // MainScope / launch). The core SDK pulls it transitively but as `implementation`,
