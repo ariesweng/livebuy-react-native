@@ -153,7 +153,17 @@ export interface LivebuyFloatingWidgetRef {
 }
 
 export interface LivebuyPlayerCoreRef {
-  load(videoId: string): void;
+  /**
+   * rn-player-load-initial-seek-core: `startAt` is an optional one-time
+   * initial-seek offset (seconds), forwarded to the already-existing native
+   * `load(videoId:startAt:)` (iOS) / `load(videoId, startAt)` (Android) — see
+   * spec `player-load-initial-seek`. Intro-aware consumption, silent drop on
+   * live, one-shot apply, and override-on-next-load are ALL native-side
+   * behavior; this bridge only forwards the value. Omitting `startAt`
+   * (or passing `undefined`) is fully backward compatible — behavior is
+   * unchanged from before this parameter existed.
+   */
+  load(videoId: string, startAt?: number): void;
   unload(): void;
   play(): void;
   pause(): void;
@@ -388,6 +398,18 @@ export interface LivebuyPlayerCoreRef {
 
 export interface LivebuyPlayerCoreProps {
   videoId: string;
+  /**
+   * rn-player-load-initial-seek-core: optional one-time initial-seek offset
+   * (seconds) for declarative (non-ref) usage — same driving mechanism as
+   * {@link videoId}: whenever `videoId` changes (including first mount), the
+   * `load` command carries whichever `startAt` value is current at that
+   * point. Changing ONLY `startAt` (without `videoId`) does NOT by itself
+   * re-trigger `load` — use the imperative {@link LivebuyPlayerCoreRef.seek}
+   * for a plain re-seek without reloading the video. See spec
+   * `player-load-initial-seek` for the full (native-side) consumption
+   * semantics — this prop only feeds the value into the `load` command.
+   */
+  startAt?: number;
   showChat?: boolean;
   showProducts?: boolean;
   enablePiP?: boolean;
@@ -710,15 +732,24 @@ export function mapReplayChatRevealed(wire: { comments?: unknown }): LBReplayCha
  * Exported for testing — like `dispatchNotifyPipModeChanged`, the native
  * `.kt`/`.swift` bridge does not compile in this repo, so this pure gate is
  * the JS-side acceptance gate.
+ *
+ * rn-player-load-initial-seek-core: generalized to a generic `T` + optional
+ * `toDispatchArgs` (default `(a) => [a]`) so a single-value command (e.g.
+ * `configure`'s `shopId: string`) and a multi-value one (e.g. `load`'s
+ * `{ videoId, startAt }`, which needs a FIXED 2-arity wire array — see
+ * `toLoadDispatchArgs`) share this same pending/flush machinery. Existing
+ * 4-arg call sites (no `toDispatchArgs`) are unaffected — the default
+ * preserves the original "wrap arg in a 1-element array" behavior exactly.
  */
-export function dispatchOnceViewReady(
+export function dispatchOnceViewReady<T>(
   viewReady: boolean,
   cmd: string,
-  arg: string,
+  arg: T,
   dispatch: (cmd: string, args: unknown[]) => void,
-): string | null {
+  toDispatchArgs: (arg: T) => unknown[] = (a) => [a],
+): T | null {
   if (viewReady) {
-    dispatch(cmd, [arg]);
+    dispatch(cmd, toDispatchArgs(arg));
     return null;
   }
   return arg;
@@ -734,15 +765,47 @@ export function dispatchOnceViewReady(
  * confirmed ready — see each component's `handleNativeLayout`).
  *
  * Exported for testing — same pattern as `dispatchOnceViewReady`.
+ *
+ * rn-player-load-initial-seek-core: generalized to a generic `T` + optional
+ * `toDispatchArgs` — see `dispatchOnceViewReady`'s JSDoc for the rationale.
+ * Existing 3-arg call sites are unaffected.
  */
-export function flushPendingDispatch(
+export function flushPendingDispatch<T>(
   cmd: string,
-  pendingArg: string | null,
+  pendingArg: T | null,
   dispatch: (cmd: string, args: unknown[]) => void,
+  toDispatchArgs: (arg: T) => unknown[] = (a) => [a],
 ): void {
   if (pendingArg != null) {
-    dispatch(cmd, [pendingArg]);
+    dispatch(cmd, toDispatchArgs(pendingArg));
   }
+}
+
+/**
+ * rn-player-load-initial-seek-core — the payload shape for a pending or
+ * dispatched `load` command: the video id plus an optional one-time
+ * initial-seek offset (see spec `player-load-initial-seek`). Bundled into one
+ * object (rather than two separate pending refs) so a single pending slot
+ * always carries a matched `videoId`+`startAt` pair — never a stale `startAt`
+ * left over from a previous `load` lingering alongside a newer `videoId`.
+ */
+interface LoadDispatchArg {
+  videoId: string;
+  startAt?: number;
+}
+
+/**
+ * rn-player-load-initial-seek-core — `load`'s wire shape is FIXED ARITY on
+ * the native side (iOS `RCT_EXTERN_METHOD` has no default-parameter
+ * equivalent; Android's `receiveCommand` reads positional args) — args[0] is
+ * always `videoId`, args[1] is always `startAt` (or `null` when absent).
+ * `startAt ?? null` turns a JS `undefined` into an explicit `null` so the
+ * native side always receives exactly 2 positional args, never 1.
+ *
+ * Exported for testing — same pattern as `dispatchOnceViewReady`.
+ */
+export function toLoadDispatchArgs(arg: LoadDispatchArg): unknown[] {
+  return [arg.videoId, arg.startAt ?? null];
 }
 
 const NATIVE_VIEW = 'LivebuyPlayerView';
@@ -753,6 +816,7 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
   (props, ref) => {
     const {
       videoId,
+      startAt,
       showChat = true,
       showProducts = true,
       enablePiP = true,
@@ -775,7 +839,7 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
     // to be flushed exactly once when it arrives. See `dispatchOnceViewReady`
     // / `flushPendingDispatch`'s JSDoc above for the full rationale.
     const viewReadyRef = useRef(false);
-    const pendingLoadRef = useRef<string | null>(null);
+    const pendingLoadRef = useRef<LoadDispatchArg | null>(null);
 
     // rn-vod-playback-progress-core — latest known channel `liveStatus` /
     // playback `duration`, tracked purely for the `vodScrubAllowed` gate below
@@ -801,8 +865,25 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
     // pending instead of being sent (and possibly silently lost with no
     // retry — the bug this change fixes) — see `handleNativeLayout` below for
     // where it gets flushed.
+    //
+    // rn-player-load-initial-seek-core: the dependency array deliberately
+    // stays `[videoId]` (does NOT include `startAt`) — `startAt` is a
+    // one-time value bound to WHICHEVER `load` call it rides along with, not
+    // an independently-reactive piece of state (see design.md D3). Each time
+    // this effect DOES run (because `videoId` changed), it reads whichever
+    // `startAt` is current in this render's closure, so "videoId changes →
+    // carry along the latest startAt" still holds. Changing only `startAt`
+    // (without `videoId`) intentionally does NOT re-trigger a `load` — use
+    // the imperative `seek()` for a plain re-seek without reloading.
     useEffect(() => {
-      pendingLoadRef.current = dispatchOnceViewReady(viewReadyRef.current, 'load', videoId, dispatch);
+      pendingLoadRef.current = dispatchOnceViewReady(
+        viewReadyRef.current,
+        'load',
+        { videoId, startAt },
+        dispatch,
+        toLoadDispatchArgs,
+      );
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoId]);
 
     // rn-player-core-load-mount-race-core — fires on the native
@@ -815,7 +896,7 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
     const handleNativeLayout = () => {
       if (!viewReadyRef.current) {
         viewReadyRef.current = true;
-        flushPendingDispatch('load', pendingLoadRef.current, dispatch);
+        flushPendingDispatch('load', pendingLoadRef.current, dispatch, toLoadDispatchArgs);
         pendingLoadRef.current = null;
       }
     };
@@ -882,7 +963,10 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
 
     // Imperative API.
     useImperativeHandle(ref, () => ({
-      load: (id: string) => dispatch('load', [id]),
+      // rn-player-load-initial-seek-core: `startAt ?? null` — the native side
+      // (both iOS `RCT_EXTERN_METHOD` and Android's positional `args` read)
+      // expects a FIXED 2-arity call; see `toLoadDispatchArgs`'s JSDoc.
+      load: (id: string, startAt?: number) => dispatch('load', [id, startAt ?? null]),
       unload: () => dispatch('unload', []),
       play: () => dispatch('play', []),
       pause: () => dispatch('pause', []),

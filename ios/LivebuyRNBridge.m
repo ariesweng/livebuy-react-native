@@ -197,8 +197,13 @@ RCT_EXTERN_METHOD(simulateTap:(nonnull NSNumber *)reactTag)
 
 @interface RCT_EXTERN_MODULE(LivebuyPlayerViewManager, RCTViewManager)
 
+// rn-player-load-initial-seek-core: `startAt` is a FIXED second positional
+// arg (RCT_EXTERN_METHOD has no default-parameter equivalent) — the JS side
+// (`LivebuyPlayer.tsx`) always sends 2 positional args, `NSNull` when there is
+// no initial-seek value.
 RCT_EXTERN_METHOD(load:(nonnull NSNumber *)reactTag
-                  videoId:(NSString *)videoId)
+                  videoId:(NSString *)videoId
+                  startAt:(nullable NSNumber *)startAt)
 
 // Legacy command name preserved as alias for backward compat.
 RCT_EXTERN_METHOD(release:(nonnull NSNumber *)reactTag)

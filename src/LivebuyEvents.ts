@@ -14,16 +14,25 @@ const { LivebuyRNBridge } = NativeModules;
 
 // is_restriction（restriction-gate ②）為**軟性顯示閘門**（additive，Int 0/1）：核心不擋播放，
 // VIDEO_OPEN params 附帶供 headless host 自繪遮罩 / template 衍生 isRestricted。缺 → 視為 0。
-export interface LBVideoOpenParams { video_id: string; title: string; is_restriction?: number }
-export interface LBVideoSwitchParams { from_video_id: string; to_video_id: string }
+// event-progress-timestamp-core (RN parity: rn-event-progress-timestamp-core) — Player-context
+// notification events additive carry `position` (seconds, current playback progress at dispatch
+// time). Native (iOS/Android) core sends this unconditionally for these events; RN owns no emit
+// code (native bridge forwards the whole `params` dict generically), so `position: number` here
+// is required (non-optional) — it always arrives on the wire.
+export interface LBVideoOpenParams { video_id: string; title: string; is_restriction?: number; position: number }
+// event-progress-timestamp-core: `position` is the LAST playback position of the FROM video
+// (the video being switched away from), not the TO video (not yet playing at dispatch time).
+export interface LBVideoSwitchParams { from_video_id: string; to_video_id: string; position: number }
 // subscribe-like-wire-fix-core §8.1 (SemVer MAJOR / BREAKING): `current_likes`
 // removed — the /sdk/video/like response carries no like count, so VIDEO_LIKE
 // now emits only { video_id }. Aligns with native (iOS/Android dispatch {video_id}).
-export interface LBVideoLikeParams { video_id: string }
-export interface LBVideoCommentParams { video_id: string; message: string }
-export interface LBVideoShareParams { video_id: string }
+// event-progress-timestamp-core (RN parity): `position` is OPTIONAL — `Livebuy.like` only
+// includes it when the caller passes a non-nil value; omitted (never `0`) otherwise.
+export interface LBVideoLikeParams { video_id: string; position?: number }
+export interface LBVideoCommentParams { video_id: string; message: string; position: number }
+export interface LBVideoShareParams { video_id: string; position: number }
 export interface LBVideoHeartbeatParams { video_id: string; progress_percent: number; duration: number }
-export interface LBInfoProductViewParams { video_id: string; product_id: string }
+export interface LBInfoProductViewParams { video_id: string; product_id: string; position: number }
 export interface LBCouponClaimParams { video_id: string; coupon_id: string }
 export interface LBAuthStateChangedParams {
   state: 'logged_in' | 'logged_out';
@@ -106,15 +115,31 @@ export interface LBCartAddRequestParams {
    * 獎品自動加購路徑照樣帶 `num`（值恆為 `1`），與 `award_winner_id` 同時出現。
    */
   num?: number;
+  /**
+   * event-progress-timestamp-core（RN parity）：`addToCart` 系列呼叫端可選傳入的目前播放進度
+   * （秒）。SDK 只在呼叫端傳入非 `null`/`undefined` 值時才附加此 key；未傳入時整個省略——絕不
+   * 退化為 `0`。目前沒有已知呼叫端會傳入非空值（保留給未來擴充）。
+   */
+  position?: number;
 }
+/**
+ * `AUTH_REQUIRED` params（event-progress-timestamp-core RN parity）。
+ *
+ * `position`（可選）同時涵蓋兩種觸發來源，取兩者中較弱的保證：
+ * - Player-context 內部直接派發（`comment_send` / `subscribe` 觸發）：core 無條件附加，恆存在。
+ * - SDK 頂層 `dispatchAuthRequired` API（如 `cart_add` 觸發）：呼叫端可選傳入，未傳入時整個省略。
+ *
+ * 因同一介面要涵蓋「不保證存在」的路徑，此欄位型別為 `position?: number`，MUST NOT 宣告為必填。
+ */
 export interface LBAuthRequiredParams {
   trigger_action: 'cart_add' | 'comment_send' | 'coupon_claim' | string;
   product_id?: string;
   video_id?: string;
+  position?: number;
 }
-export interface LBProductClickParams { product_id: string; video_id: string }
+export interface LBProductClickParams { product_id: string; video_id: string; position: number }
 export interface LBVideoShareRequestParams { [key: string]: never } // empty per spec
-export interface LBInfoCustomerServiceParams { video_id: string; anchor_id: string }
+export interface LBInfoCustomerServiceParams { video_id: string; anchor_id: string; position: number }
 // cart-add-tier2-unify: the v1 `CART_ADD_RESULT` notification + `LBCartAddResultParams`
 // are retired — its `{ buy_no, track, ... }` semantics merged into the enriched
 // `LBCartAddRequestParams` (fired after a successful addToCart). See cart-checkout spec.
@@ -238,10 +263,12 @@ export interface LBActiveEventStartedParams {
  * `VIEW_CART` — 用戶點擊「查看購物車」CTA（notification，不可攔截、不 auto-PiP）。
  * `product_id` 僅商品詳情頁 CTA 帶；商品列表底部 CTA 省略該 key（view-cart-event-core）。
  * host 收到後自行收起 / 縮小播放器並導航至自家購物車（template 不擁有結帳頁）。
+ * `position`（event-progress-timestamp-core RN parity）：core 無條件附加目前播放進度（秒），必填。
  */
 export interface LBViewCartParams {
   video_id: string;
   product_id?: string;
+  position: number;
 }
 
 /**
@@ -280,11 +307,15 @@ export interface LBReplayChatComment {
  *
  * 註：四端 native bridge 對 `params` 採整包泛型透傳，`time` / 全量 comments 已自動到 JS host；此型別僅
  * 為編譯期文件 / 型別（additive，不影響 runtime）。
+ *
+ * `position`（event-progress-timestamp-core RN parity）：core 無條件附加派發當下的目前播放進度
+ * （秒），必填——與每筆 comment 的 `time`（歷史留言的播放偏移秒數）是不同的欄位，不要混淆。
  */
 export interface LBChatHistoryLoadedParams {
   video_id: string;
   is_replay_seed: boolean;
   comments: LBReplayChatComment[];
+  position: number;
 }
 
 export interface LBSdkEventParamsMap {

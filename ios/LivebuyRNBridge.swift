@@ -1333,7 +1333,12 @@ final class LivebuyPlayerRNView: UIView {
     // alongside the other `lastKnown*` properties.
     private var lastKnownLiveDurationSeconds: Int?
 
-    func load(videoId: String) {
+    // rn-player-load-initial-seek-core: `startAt` forwards straight to the
+    // already-existing core method `LivebuyPlayerViewController.load(videoId:startAt:)`
+    // (player-load-initial-seek-core, commit 0128f3ce9) — this RN view does not
+    // re-implement any of that method's intro-aware / live-drop / one-shot
+    // consume semantics, it only forwards the value.
+    func load(videoId: String, startAt: Double? = nil) {
         // VC is created lazily: the React tag (and therefore stable view identity) isn't known at UIView init time.
         if playerVC == nil {
             let vc = LivebuyPlayerViewController()
@@ -1462,7 +1467,7 @@ final class LivebuyPlayerRNView: UIView {
                 vc.view.bottomAnchor.constraint(equalTo: bottomAnchor),
             ])
         }
-        playerVC?.load(videoId: videoId)
+        playerVC?.load(videoId: videoId, startAt: startAt)
     }
 
     func releasePlayer() {
@@ -1845,8 +1850,12 @@ final class LivebuyPlayerViewManager: RCTViewManager {
         }
     }
 
-    @objc func load(_ reactTag: NSNumber, videoId: String) {
-        withView(tag: reactTag) { $0.load(videoId: videoId) }
+    // rn-player-load-initial-seek-core: `startAt` mirrors the `.m`
+    // `RCT_EXTERN_METHOD` declaration's fixed 2nd positional arg — the JS
+    // side always sends it (NSNull when there is no initial-seek value),
+    // so this is a plain `NSNumber?` (not `nonnull`).
+    @objc func load(_ reactTag: NSNumber, videoId: String, startAt: NSNumber?) {
+        withView(tag: reactTag) { $0.load(videoId: videoId, startAt: startAt?.doubleValue) }
     }
 
     // Legacy command name preserved as alias for backward compat (pre-headless RN

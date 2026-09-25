@@ -466,7 +466,21 @@ internal class LivebuyPlayerViewManager(
 
     override fun receiveCommand(view: LivebuyPlayerView, commandId: String, args: ReadableArray?) {
         when (commandId) {
-            "load"      -> { val videoId = args!!.getString(0) ?: return; view.load(videoId) }
+            // rn-player-load-initial-seek-core: `startAt` is an OPTIONAL 2nd
+            // positional arg forwarded straight to the already-existing core
+            // method `LivebuyPlayerView.load(videoId, startAt)`
+            // (player-load-initial-seek-core, commit 63ecf6fbf) — this bridge
+            // does not re-implement any of that method's intro-aware /
+            // live-drop / one-shot consume semantics, it only forwards the
+            // value. `args` may legitimately have length 1 (older/no-startAt
+            // callers) or a `null` at index 1 (JS sends explicit `null` when
+            // there is no initial-seek value) — both mean "no startAt"; never
+            // call `getDouble(1)` on an out-of-range or null index.
+            "load"      -> {
+                val videoId = args!!.getString(0) ?: return
+                val startAt = if (args.size() > 1 && !args.isNull(1)) args.getDouble(1) else null
+                view.load(videoId, startAt)
+            }
             // `release` is the legacy command name from the pre-headless API.
             // headless SDK renamed it to `unload`; we keep `release` as an
             // alias so the existing useEffect-cleanup path in LivebuyPlayer.tsx
