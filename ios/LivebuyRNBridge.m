@@ -153,6 +153,15 @@ RCT_EXTERN_METHOD(reportCartTrack:(NSString *)shopId
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+// auth-required-pending-action-retry — 登入後明確重試 / 丟棄 AUTH_REQUIRED 攔下的動作。
+RCT_EXTERN_METHOD(retryPendingAction:(NSString *)token
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(discardPendingAction:(NSString *)token
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 // MARK: - goods tracking (goods-await-notice-endpoints-core)
 
 RCT_EXTERN_METHOD(setAwaitGoods:(NSString *)goodsGpn

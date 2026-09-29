@@ -35,7 +35,9 @@ Pod::Spec.new do |s|
   # core is now published as a CocoaPods pod (livebuy-ios-sdk/LivebuySDK.podspec —
   # a vendored LivebuySDK.xcframework + the pinned AWS IVS 1.52.0 engine),
   # mirroring the SwiftPM dist. Declared here so autolink pulls it transitively:
-  # `~> 4.0` = CocoaPods optimistic operator, [4.0.0, 5.0.0) — aligned to the major
+  # `~> 4.23` = CocoaPods optimistic operator, [4.23.0, 5.0.0). Floor raised from `4.0` because
+  # the bridge calls `Livebuy.retryPendingAction(token:)`, which exists only from iOS SDK 4.23.0
+  # (rn-auth-required-pending-action-retry-core). The major line is still aligned to the major
   # boundary introduced by the 2026-07-16 brand-casing rename (commit c140f4bf,
   # `LiveBuySDK`/`LiveBuyPlayerView` -> `LivebuySDK`/`LivebuyPlayerView`), mirroring
   # the SwiftPM `from: "4.0.0"` guidance in docs/handoff/ios-partner-integration-quickstart.md.
@@ -44,7 +46,7 @@ Pod::Spec.new do |s|
   # is a point-in-time snapshot of "current major line", not a lock on one version — it
   # will need bumping again if core ever cuts a new major; don't assume `4.0` stays the
   # answer forever.
-  s.dependency "LivebuySDK", "~> 4.0"
+  s.dependency "LivebuySDK", "~> 4.23"
   #
   # RESOLUTION — the consumer's Podfile MUST make the `LivebuySDK` pod findable
   # (exactly like SwiftPM consumers add `.package(url:)`, or the Android SDK's

@@ -112,7 +112,10 @@ dependencies {
     // cuts a new published version; bump it the same way when that happens, don't
     // assume the literal version above stays current.
     //
-    // Current pin: 4.23.0 (rn-android-bridge-core-pin-4-23-0) — bumped from 4.22.0.
+    // Current pin: 4.24.0 (rn-auth-required-pending-action-retry-core) — bumped from 4.23.0.
+    // 4.24.0 adds `LivebuySDK.retryPendingAction(String): boolean` / `discardPendingAction(String)`,
+    // which LivebuyRNModule.kt calls unconditionally (javap-verified on the published AAR).
+    // (Prior bump: 4.23.0, rn-android-bridge-core-pin-4-23-0, from 4.22.0.)
     //
     // ⚠️ THIS IS A REGRESSION FIX, NOT ROUTINE VERSION TRACKING (same failure class as
     // every prior bump in this comment's history, and the same failure class as the
@@ -144,7 +147,7 @@ dependencies {
     // Before the NEXT `livebuy-react-native` release (real `--yes` publish, not
     // `--dry-run`), re-verify this pin against the real remote AAR the same way this
     // fix did — do not trust mavenLocal-from-HEAD compile success as proof.
-    implementation "tv.livebuy:livebuy:4.23.0"
+    implementation "tv.livebuy:livebuy:4.24.0"
 
     // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
     // MainScope / launch). The core SDK pulls it transitively but as `implementation`,

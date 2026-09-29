@@ -1824,6 +1824,28 @@ const LivebuySDK = {
   },
 
   /**
+   * Re-run the action that an `AUTH_REQUIRED` event blocked (auth-required-pending-action-retry).
+   * Call after the user has logged in, with the `retry_token` from the event params.
+   * One-shot; no time limit; `clearUser()` wipes pending actions; `setUser()` never auto-fires.
+   * Resolves `true` if the pending action was found and re-invoked, `false` for an unknown /
+   * already-consumed / discarded token (never rejects for that). A non-string / empty token
+   * resolves `false` without touching native.
+   */
+  async retryPendingAction(token: string): Promise<boolean> {
+    if (typeof token !== 'string' || token.length === 0) return false;
+    return (await LivebuyRNBridge.retryPendingAction(token)) === true;
+  },
+
+  /**
+   * Drop the pending action for `token` WITHOUT running it (user gave up logging in).
+   * Unknown token is a safe no-op. A non-string / empty token is ignored.
+   */
+  async discardPendingAction(token: string): Promise<void> {
+    if (typeof token !== 'string' || token.length === 0) return;
+    await LivebuyRNBridge.discardPendingAction(token);
+  },
+
+  /**
    * Toggle restock-arrival tracking for a product (goods-await-notice §5.2,
    * `POST /sdk/goods/await`). Login-required; `enabled=true` tracks, `false`
    * cancels. On success the native side dispatches AWAIT_GOODS_CHANGED.

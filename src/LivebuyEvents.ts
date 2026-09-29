@@ -136,6 +136,12 @@ export interface LBAuthRequiredParams {
   product_id?: string;
   video_id?: string;
   position?: number;
+  /**
+   * 登入後明確重試用的 opaque token（auth-required-pending-action-retry）。host 登入後呼叫
+   * `LivebuySDK.retryPendingAction(token)`；不需要時可 `discardPendingAction(token)`。
+   * native 未帶時整個 key 省略（不是空字串）。
+   */
+  retry_token?: string;
 }
 export interface LBProductClickParams { product_id: string; video_id: string; position: number }
 export interface LBVideoShareRequestParams { [key: string]: never } // empty per spec

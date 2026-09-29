@@ -698,6 +698,31 @@ final class LivebuyRNBridge: RCTEventEmitter {
         }
     }
 
+    // MARK: - pending retry (auth-required-pending-action-retry)
+
+    /// 委派 `Livebuy.retryPendingAction(token:)`（一次性；未知 token → false）。原入口 closure 可能觸及
+    /// player / UI，故於主執行緒呼叫。不包 `registerPendingRetry`（closure 無法跨 bridge）。
+    @objc func retryPendingAction(
+        _ token: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.main.async {
+            resolve(Livebuy.retryPendingAction(token: token))
+        }
+    }
+
+    @objc func discardPendingAction(
+        _ token: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.main.async {
+            Livebuy.discardPendingAction(token: token)
+            resolve(nil)
+        }
+    }
+
     // MARK: - goods tracking (goods-await-notice-endpoints-core)
 
     @objc func setAwaitGoods(

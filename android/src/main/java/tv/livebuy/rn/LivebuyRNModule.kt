@@ -882,6 +882,32 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         }
     }
 
+    // auth-required-pending-action-retry — 登入後明確重試 / 丟棄。委派 native
+    // LivebuySDK.retryPendingAction(token): Boolean / discardPendingAction(token)（4.24.0+）。
+    // 原入口 closure 可能觸及 player / UI，故 post 到 main looper。不包 registerPendingRetry。
+    @ReactMethod
+    fun retryPendingAction(token: String, promise: Promise) {
+        timeoutHandler.post {
+            try {
+                promise.resolve(LivebuySDK.retryPendingAction(token))
+            } catch (t: Throwable) {
+                promise.reject("LB_ERROR", t.message ?: "retryPendingAction failed", t)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun discardPendingAction(token: String, promise: Promise) {
+        timeoutHandler.post {
+            try {
+                LivebuySDK.discardPendingAction(token)
+                promise.resolve(null)
+            } catch (t: Throwable) {
+                promise.reject("LB_ERROR", t.message ?: "discardPendingAction failed", t)
+            }
+        }
+    }
+
     // MARK: - goods tracking (goods-await-notice-endpoints-core)
 
     @ReactMethod
