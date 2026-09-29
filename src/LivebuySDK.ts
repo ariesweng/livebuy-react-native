@@ -1,5 +1,11 @@
 import { NativeModules } from 'react-native';
 import type { SDKConfig } from './SDKConfig';
+import {
+  registerJsPendingRetry,
+  takeJsPendingRetry,
+  discardJsPendingRetry,
+  clearJsPendingRetries,
+} from './pendingRetryRegistry';
 
 const { LivebuyRNBridge } = NativeModules;
 
@@ -1535,6 +1541,7 @@ const LivebuySDK = {
   },
 
   clearUser(): void {
+    clearJsPendingRetries();
     LivebuyRNBridge.clearUser();
   },
 
@@ -1833,16 +1840,57 @@ const LivebuySDK = {
    */
   async retryPendingAction(token: string): Promise<boolean> {
     if (typeof token !== 'string' || token.length === 0) return false;
+    const jsAction = takeJsPendingRetry(token);
+    if (jsAction) {
+      try {
+        jsAction();
+      } catch (e) {
+        if ((globalThis as { __DEV__?: boolean }).__DEV__) console.debug('[Livebuy] pending retry threw', e);
+      }
+      return true;
+    }
     return (await LivebuyRNBridge.retryPendingAction(token)) === true;
   },
 
   /**
    * Drop the pending action for `token` WITHOUT running it (user gave up logging in).
-   * Unknown token is a safe no-op. A non-string / empty token is ignored.
+   * Unknown token is a safe no-op. A non-string / empty token is ignored. A JS-registered
+   * token ({@link registerPendingRetry}) is removed locally without touching native.
    */
   async discardPendingAction(token: string): Promise<void> {
     if (typeof token !== 'string' || token.length === 0) return;
+    if (discardJsPendingRetry(token)) return;
     await LivebuyRNBridge.discardPendingAction(token);
+  },
+
+  /**
+   * Register a JS closure for an explicit "retry after login" and get an opaque `js-` prefixed
+   * token (rn-dispatch-auth-required-js-pending-retry-core). Native closures cannot cross the
+   * bridge, so this registry lives in JS and is only for RN-side template / host closures; it never
+   * touches native. Feed the token into {@link dispatchAuthRequired}'s `retryToken`; on the host's
+   * {@link retryPendingAction}(token) the closure runs once. `clearUser()` wipes it; `setUser()`
+   * never auto-fires it.
+   */
+  registerPendingRetry(action: () => void): string {
+    return registerJsPendingRetry(action);
+  },
+
+  /**
+   * Dispatch the unified `AUTH_REQUIRED` event from JS (e.g. the drop-in proactive cart gate).
+   * Delegates to native `dispatchAuthRequired`; resolves `true` if the host intercepted it
+   * (returned true from its listener). Only non-empty fields are sent — missing keys are omitted,
+   * never empty string / 0. Before `configure` native is a safe no-op and resolves `false`.
+   */
+  async dispatchAuthRequired(
+    triggerAction: string,
+    opts?: { videoId?: string; productId?: string; retryToken?: string; position?: number },
+  ): Promise<boolean> {
+    const params: Record<string, string | number> = {};
+    if (opts?.videoId) params.videoId = opts.videoId;
+    if (opts?.productId) params.productId = opts.productId;
+    if (opts?.retryToken) params.retryToken = opts.retryToken;
+    if (typeof opts?.position === 'number' && Number.isFinite(opts.position)) params.position = opts.position;
+    return (await LivebuyRNBridge.dispatchAuthRequired(triggerAction, params)) === true;
   },
 
   /**

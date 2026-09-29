@@ -723,6 +723,24 @@ final class LivebuyRNBridge: RCTEventEmitter {
         }
     }
 
+    /// 委派 `Livebuy.dispatchAuthRequired(triggerAction:videoId:productId:retryToken:position:)`
+    /// （rn-dispatch-auth-required-js-pending-retry-core）。opts 只含非空 key；resolve host 是否攔截。
+    @objc func dispatchAuthRequired(
+        _ triggerAction: String,
+        opts: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let handled = Livebuy.dispatchAuthRequired(
+            triggerAction: triggerAction,
+            videoId: opts["videoId"] as? String,
+            productId: opts["productId"] as? String,
+            retryToken: opts["retryToken"] as? String,
+            position: (opts["position"] as? NSNumber)?.doubleValue
+        )
+        resolve(handled)
+    }
+
     // MARK: - goods tracking (goods-await-notice-endpoints-core)
 
     @objc func setAwaitGoods(

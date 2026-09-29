@@ -908,6 +908,27 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         }
     }
 
+    // rn-dispatch-auth-required-js-pending-retry-core — 從 JS 派發統一 AUTH_REQUIRED。
+    // 委派 native LivebuySDK.dispatchAuthRequired(triggerAction, videoId, productId, position, retryToken)。
+    // opts 只含非空 key；resolve host 是否攔截。
+    @ReactMethod
+    fun dispatchAuthRequired(triggerAction: String, opts: ReadableMap, promise: Promise) {
+        timeoutHandler.post {
+            try {
+                val handled = LivebuySDK.dispatchAuthRequired(
+                    triggerAction,
+                    if (opts.hasKey("videoId")) opts.getString("videoId") else null,
+                    if (opts.hasKey("productId")) opts.getString("productId") else null,
+                    if (opts.hasKey("position") && !opts.isNull("position")) opts.getDouble("position") else null,
+                    if (opts.hasKey("retryToken")) opts.getString("retryToken") else null,
+                )
+                promise.resolve(handled)
+            } catch (t: Throwable) {
+                promise.reject("LB_ERROR", t.message ?: "dispatchAuthRequired failed", t)
+            }
+        }
+    }
+
     // MARK: - goods tracking (goods-await-notice-endpoints-core)
 
     @ReactMethod

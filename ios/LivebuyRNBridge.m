@@ -162,6 +162,12 @@ RCT_EXTERN_METHOD(discardPendingAction:(NSString *)token
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+// rn-dispatch-auth-required-js-pending-retry-core — 從 JS 派發統一 AUTH_REQUIRED。
+RCT_EXTERN_METHOD(dispatchAuthRequired:(NSString *)triggerAction
+                  opts:(NSDictionary *)opts
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 // MARK: - goods tracking (goods-await-notice-endpoints-core)
 
 RCT_EXTERN_METHOD(setAwaitGoods:(NSString *)goodsGpn
