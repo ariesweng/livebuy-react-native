@@ -11,6 +11,188 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.9.2] - 2026-10-02
+
+> **core，patch，零 BREAKING，零 JS／TS 與 bridge 原始碼變更。** 同步發 `livebuy-react-native-ui` `1.12.2`
+> （純 metadata，見下一段）；`livebuy-react-native-reference-ui`（`1.11.1`）不發。
+
+### Changed
+
+- **Android bridge 的 core pin `tv.livebuy:livebuy` `4.26.0` → `4.26.1`**（`rn-android-bridge-core-pin-4-26-1`）：
+  `4.26.1` 的 AAR 在 consumer 規則補上 WorkManager／Room 反射建構子的三條 keep，開縮碼的 host 不必再為
+  Livebuy SDK 寫任何 keep 規則（`androidx.work.**` / `androidx.room.**` 也不必自己補）。以本 repo 的範例 host
+  （RN 0.76 範本的 release 設定 `proguard-android.txt`、host 沒有任何 keep 規則）在模擬器對真實後端實測：
+  `4.26.0` 與 `4.26.1` 都能啟動並以原生 core 播放——RN 範本這組縮碼設定在 `4.26.0` 本來就沒有撞到
+  WorkManager 啟動崩潰；會撞到的是較激進的縮碼設定（例如 Flutter 預設的 release build）。本版屬防禦性追新，
+  讓使用其他縮碼設定的 RN host 也不必自己補規則。未經真機驗證。
+
+## [2.9.1] - 2026-10-02
+
+> **core，patch，零 BREAKING，零 JS／TS 與 bridge 原始碼變更。** 同步發 `livebuy-react-native-ui`
+> `1.12.1`（純 metadata，見下一段）；`livebuy-react-native-reference-ui`（`1.11.1`）不發。
+
+### Fixed
+
+- **Android host 開 R8 且未自行補 `tv.livebuy.**` keep 規則時 API 解析全部失效**（`rn-android-bridge-core-pin-4-26-0`）：Android bridge 的
+  core pin `tv.livebuy:livebuy` 由 `4.24.0` 升到 `4.26.0`。`4.26.0` 的 AAR 自帶 Gson 反射目標的 consumer
+  keep 規則與 `-dontwarn okhttp3.** / okio.**`，host 自動套用、不必自己寫；先前的 core 在 host 開
+  `minifyEnabled true` 時 DTO 會被 R8 整個移除。`4.24.0` → `4.26.0` 之間 core 模組的 main 原始碼只有註解
+  變動，bridge 呼叫點不受影響（已對已發佈的 `livebuy-4.26.0.aar` 核對 bridge 全部 `import` 與
+  `retryPendingAction` / `discardPendingAction` / `dispatchAuthRequired` / `load(String, Double)` /
+  `isMuted` 簽章）。iOS 側 podspec `~> 4.23` 不變——iOS `4.26.0` 的隱私清單於 `pod update` 後自動取得。
+  未在 RN host 上實際開 R8 建置驗證（原生 sample 以同一 AAR 規則在模擬器驗過）。
+
+## [2.9.0] - 2026-09-29
+
+> **core（`livebuy-react-native`），minor，無公開符號移除、無簽章破壞。** 新增從 JS 派發統一
+> `AUTH_REQUIRED` 與 JS 端 pending-retry 註冊表。原生相依不變（Android pin `4.24.0`、iOS 下限 `~> 4.23`，
+> 皆已含 bridge 使用的 `dispatchAuthRequired(... retryToken ...)`）。
+
+### Added
+
+- **`LivebuySDK.dispatchAuthRequired(triggerAction, opts?): Promise<boolean>`** 與 **`LivebuySDK.registerPendingRetry(action): string`**
+  (`rn-dispatch-auth-required-js-pending-retry-core`): 從 JS 派發統一 `AUTH_REQUIRED` 事件（橋接原生同名 API，只送非空欄位），
+  並提供 JS 端 pending-retry 註冊表（`js-` 前綴 token；`retryPendingAction` / `discardPendingAction` 先查 JS 表、未命中落回原生；
+  `clearUser()` 清空）。原生 token 仍不可由 JS 註冊。
+
+## [2.8.0] - 2026-09-29
+
+> **core（`livebuy-react-native`），minor，無公開符號移除、無簽章破壞。** 新增登入後重試
+> 被 `AUTH_REQUIRED` 攔下動作的 public API。**相容性注意**：本版把 iOS 相依下限由 `~> 4.0`
+> 升為 `~> 4.23`（不會再解析到 iOS SDK < 4.23；`Livebuy.retryPendingAction(token:)` 只存在於
+> 4.23.0 之後）、Android 橋接 pin 由 `4.23.0` 升為 `4.24.0`。消費端若鎖在較舊的 iOS SDK
+> 版本，升級本套件時需一併升 iOS SDK 至 4.23 以上。
+
+### Added
+
+- **`LivebuySDK.retryPendingAction(token): Promise<boolean>` / `discardPendingAction(token): Promise<void>`**
+  (`rn-auth-required-pending-action-retry-core`): 登入後以 `AUTH_REQUIRED` 事件的 `retry_token` 明確重試（或丟棄）
+  被攔下的動作，parity iOS 4.23.0 / Android 4.24.0。未知 token → `false`。不包 `registerPendingRetry`（closure 無法跨 bridge）。
+- `LBAuthRequiredParams.retry_token?: string` 型別。
+
+### Changed
+
+- `react-native/livebuy-react-native.podspec` iOS 相依下限 `LivebuySDK` `~> 4.0` → `~> 4.23`
+  （橋接呼叫 `Livebuy.retryPendingAction(token:)`，只存在於 iOS SDK 4.23.0 之後）。
+- `react-native/android/build.gradle` 核心相依 pin `tv.livebuy:livebuy` `4.23.0` → `4.24.0`（新 API 只存在於 4.24.0 之後）。
+
+## [2.7.1] - 2026-09-25
+
+> **Patch — regression fix for a broken v2.7.0 release.** `v2.7.0` shipped with
+> `react-native/android/build.gradle`'s core dependency pin (`tv.livebuy:livebuy`) still
+> at `4.22.0`, one version behind a core symbol the Android bridge
+> (`LivebuyPlayerViewManager.kt:482`) already referenced unconditionally on every "load"
+> command: `LivebuyPlayerView.load(videoId, startAt)` — the two-arg overload, introduced
+> in `android-v4.23.0` (commit `63ecf6fbf`, `android-player-load-initial-seek-core`).
+> `4.22.0` only has the one-arg `load(String)`. Confirmed by downloading both real
+> published AARs and running `javap` on `tv.livebuy.sdk.player.LivebuyPlayerView`. The
+> published `v2.7.0` tag itself fails to compile for any consumer resolving the real
+> remote Maven artifact — same failure class as the Flutter sibling's `v2.5.0` → `v2.5.1`
+> incident. `v2.7.0` cannot be overwritten, so this patch supersedes it. This release
+> only bumps the pin to `4.23.0` (`rn-android-bridge-core-pin-4-23-0`); no Dart/TS or
+> bridge Kotlin source changed. **Zero BREAKING.**
+
+### Fixed
+
+- **`react-native/android/build.gradle` core dependency pin bumped `4.22.0` → `4.23.0`**
+  (`rn-android-bridge-core-pin-4-23-0`): closes the real compile-time symbol gap that
+  made the published `v2.7.0` Android build fail (`LivebuyPlayerView.load(videoId,
+  startAt)` two-arg overload). No Dart/TS or bridge Kotlin source changed — pin
+  coordinate + explanatory comment only.
+
+## [2.7.0] - 2026-09-25
+
+> **core（`livebuy-react-native`），minor，零 BREAKING。** 自 `2.6.0`（發版準備，尚未實際
+> publish）以來累積 2 個內容 commit，皆為既有跨平台能力的 RN parity 延伸，純 additive。
+
+### Added
+
+- **`load` 橋接新增可選初始 seek 秒數**（`rn-player-load-initial-seek-core`，parity
+  iOS/Android 既有 `load(videoId:startAt:)`）：`LivebuyPlayerCoreRef.load` / declarative
+  `LivebuyPlayerCoreProps` 新增可選 `startAt?: number`，原生橋接（iOS `LivebuyRNBridge`／
+  Android `LivebuyPlayerViewManager`）轉發到既有已支援 `startAt` 的原生方法，讓 host 能「開一支
+  指定影片直接跳到指定時間點」，不重做任何業務邏輯（intro-aware、直播靜默丟棄、一次性套用皆由
+  原生側消化）。
+- **通知事件 TypeScript 型別補上 `position`**（`rn-event-progress-timestamp-core`，parity
+  iOS/Android 已完成的 `event-progress-timestamp`）：`LivebuyEvents.ts` 12 個既有 typed params
+  interface（9 個必填、3 個選填）補上目前播放進度秒數。原生橋接對通知型事件的 `params` 本就整包
+  泛型透傳（無 per-key allowlist），此前 runtime payload 已帶這個值，本次只是補齊型別定義本身；
+  不改任何 runtime 邏輯、不改任何原生橋接碼。
+
+## [2.6.0] - 2026-09-23
+
+> **core（`livebuy-react-native`），minor，零 BREAKING。** 自 `2.5.1` 以來累積 3 個既有內容
+> commit + 本輪新增 1 個 Android bridge core pin 追新。
+
+### Added
+
+- 直播結束畫面顯示真實直播時長（`rb-rn-endscreen-live-duration`，含原生 bridge 補傳
+  `live_duration_seconds` wire key）。
+
+### Fixed
+
+- Android bridge：背景化 / PiP 關閉（X）補轉發暫停（`rn-android-pause-on-background-core`）。
+- RN `LivebuyPlayerCore`/`WidgetCore` 補 `onLayout` 確認再送首次指令，修正掛載時序 race
+  （`rn-player-core-load-mount-race-core`）。
+- **⚠️ `react-native/android/build.gradle` core dependency pin 追新 `4.21.2` → `4.22.0`**
+  （`rn-android-bridge-core-pin-4-22-0`，parity Flutter `2.5.3`/`flutter-android-bridge-
+  core-pin-4-22-0`）：現行 pin `4.21.2` 對本檔上面已記錄的
+  `直播結束畫面顯示真實直播時長`（`rb-rn-endscreen-live-duration`）其實已經編譯不過——該
+  change 的 bridge Kotlin 原始碼已直接讀取 `LBPlayerMomentState.liveDurationSeconds`，這個
+  欄位只存在於 Android core `4.22.0`（`endscreen-live-duration-android-core`），`4.21.2`
+  不含，對真實已發布 remote artifact 編譯會失敗（monorepo CI 因 mavenLocal 一律從 HEAD 源碼
+  建置而測不出）。同批 `4.22.0` 也修好了下面
+  `livebuy-react-native-reference-ui 1.10.0` 新增的「開場影片乾淨模式展開進度條改為完全可
+  互動」的原生行為缺口——`togglePlayPause()`/`seek()`/`seekBy()`/進度回報在開場 MP4 播放期間
+  未路由到 introEngine，是拖動 seek／播放暫停按鈕沒效果的根本原因，兩者在同一個 core 版本一併
+  修復。
+
+## [2.5.1] - 2026-09-21
+
+> **core（`livebuy-react-native`），patch，零 BREAKING。** 自 `2.5.0` 以來累積 2 個內容
+> commit：1 個既有 auto-enter PiP 修復 + 1 個 Android bridge core pin 追新（追平既有兩版
+> drift）。
+
+### Fixed
+
+- **Android bridge：播放器 dispose 時解除 API 31+ 系統 auto-enter PiP**
+  （`android-bridge-auto-pip-disarm-on-dispose-core`）：`installAutoPip` 掛載時對 host Activity
+  寫的 `setAutoEnterEnabled(true)` 此前從未在 `dispose()` 撤回，auto-enter 是 Activity 的屬性、
+  比 view 長壽，關閉播放器後按 Home 會把 app 當下畫面（例如商店首頁）塞進 PiP 小窗（Flutter
+  sibling 於 Pixel 7 API 34 實測，RN 為同一份 wiring 鏡像）。現在只撤回 bridge 自己成功 arm 過的
+  （arm 寫入改包 `runCatching`，失敗不 crash、不偽報成功），host 自設的 PiP params 不受影響；
+  決策抽成純函式 `AutoPipPolicy.shouldDisarmOnDispose` 並補 JVM 測試。host 零改動。
+- **⚠️ `react-native/android/build.gradle` core dependency pin 追新 `4.19.0` → `4.21.2`**
+  （`fix-android-view-mode-pip-state-change-core` 的 consumer 端追新，追平此前已存在的兩版
+  drift）：此 pin 此前停在 `4.19.0`，落後 Android core 現版兩個版本；本輪追新的重點是 Android
+  core `4.21.2` 補齊了 `LivebuyPlayerView.notifyPictureInPictureModeChanged`（View-mode，本
+  bridge 走的正是這條路徑）原本完全不 emit 統一事件 `PIP_STATE_CHANGE` 的既有缺口——這個 pin
+  若不追新，下面 `livebuy-react-native-reference-ui 1.9.1` 新增的
+  `rn-android-pip-hide-chrome-reference-ui` 訂閱的事件實際上永遠不會抵達，是一段看似正確、
+  實際死碼的功能（同一種 regression 模式見 Flutter `2.5.1` 那筆——core symbol 已被 bridge/
+  reference-ui 引用但 pin 沒追新）。無 JS/TS 或 bridge Kotlin 行為改動，純 pin coordinate
+  提升。
+
+## [2.5.0] - 2026-09-20
+
+> **core（`livebuy-react-native`），minor，零 BREAKING。** 自 `2.4.0` 以來累積 2 個內容
+> commit（另 1 個 Android bridge core pin 追新已獨立折入 `2.4.0`），主軸是 Android
+> scrub-tolerance 橋接與一個 bridge 事件註冊缺漏造成的當機修復。
+
+### Added
+
+- **RN JS ref 新增 Android-only `beginScrub()`/`endScrub()`**（`rn-vod-scrub-seek-tolerance-core`），
+  鏡射 Android core 既有的 `CLOSEST_SYNC`/`EXACT` scrub-tolerance 動態切換。
+
+### Fixed
+
+- **修復 Android native module `receiveCommand` 從未真正轉發 `togglePlayPause`/`seekBy`**
+  （既有 spec 記錄缺口，此前靜默 no-op，`rn-vod-scrub-seek-tolerance-core`）。
+- **修復 iOS bridge `RCTEventEmitter` 未註冊 `LBPlaybackProgressChange`/`LBReplayChatRevealed`
+  事件名稱**：兩者實際觸發時會直接觸發 hard crash（redbox）——`RCTEventEmitter` 對未註冊事件
+  名稱是硬錯誤、非靜默 no-op；bridge 事件註冊清單缺漏，與這兩個功能本身程式碼無關
+  （`fix-rn-bridge-unregistered-events`）。
+
 ## [2.4.0] - 2026-09-13
 
 > **core（`livebuy-react-native`），minor，零 BREAKING。** 自 `2.3.0` 以來累積 5 個內容
