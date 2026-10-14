@@ -148,6 +148,48 @@ export interface LBConfigOptions {
    * {@link LivebuySDK.isRequireLoginForAddToCartEnabled}.
    */
   requireLoginForAddToCart?: boolean;
+  /**
+   * What the player does when a VOD / 回放 (`liveStatus != 1`) video finishes
+   * playing naturally (`vod-end-loop-rn-core`, parity iOS / Android core 4.28.0
+   * `configure(..., vodEndBehavior:)`). Default `'loop'`.
+   *
+   *   • `'loop'` (default) — replay the current video from the start (IG Reels /
+   *     TikTok style), whether or not a next video exists. The player state still
+   *     surfaces `ended` once (a "finished one loop" signal) before returning to
+   *     `playing`; no auto-advance to the next video.
+   *   • `'advance'` — the legacy behavior before core 4.28.0: with a next video,
+   *     load it directly; without one, stay at `ended`.
+   *
+   * LIVE (`liveStatus == 1`) end is unaffected by either value.
+   *
+   * **Behavior change:** hosts that relied on VOD auto-advancing to the next video
+   * must now pass `vodEndBehavior: 'advance'` to keep that behavior.
+   *
+   * RN is a pass-through wrapper: the value is forwarded to the native `configure`
+   * (15th positional arg) and the wrapped iOS / Android native player performs the
+   * loop / advance. The value is also cached JS-side for a synchronous read via
+   * {@link LivebuySDK.getVodEndBehavior} (consumed by `react-native-reference-ui`).
+   */
+  vodEndBehavior?: LBVodEndBehavior;
+}
+
+/**
+ * VOD / 回放 natural-end behavior — the stable cross-platform **wire string** of the
+ * native `LBVodEndBehavior` enum (iOS `.loop` / `.advance`, Android `LOOP` / `ADVANCE`;
+ * `vod-end-loop-rn-core`). The native bridge maps `'advance'` → advance and anything
+ * else (including omitted) → loop.
+ */
+export type LBVodEndBehavior = 'loop' | 'advance';
+
+/**
+ * vod-end-loop-rn-core — pure mapping from the (possibly omitted / untyped) option
+ * value to the wire string forwarded to `LivebuyRNBridge.configure(...)`. Only the
+ * exact string `'advance'` selects advance; everything else (omitted, `'loop'`, or a
+ * value an untyped caller smuggled in) falls back to the `'loop'` default — the same
+ * fallback the native bridges apply on their side.
+ */
+export function resolveVodEndBehavior(value: unknown): LBVodEndBehavior {
+  return value === 'advance' ? 'advance' : 'loop';
 }
 
 /**
@@ -1396,6 +1438,18 @@ let requireLoginForAddToCart = false;
  */
 let configuredShopId: string | undefined;
 
+/**
+ * vod-end-loop-rn-core — JS-side echo of the `vodEndBehavior` last passed to
+ * `configure()`. Unlike `directCloseButtonEnabled`, the value IS forwarded to
+ * `LivebuyRNBridge.configure(...)` (15th positional arg) — this is a parallel cache
+ * for a synchronous read by `getVodEndBehavior()` (no native round-trip). Every
+ * `configure()` call re-derives it via `resolveVodEndBehavior(options.vodEndBehavior)`
+ * (omitted → `'loop'`), so a later call always wins (no `_resetForTesting` hook,
+ * mirroring `directCloseButtonEnabled`). Initial value `'loop'` matches the native
+ * default before any `configure()`.
+ */
+let vodEndBehavior: LBVodEndBehavior = 'loop';
+
 const LivebuySDK = {
   /**
    * Initialize the SDK. Now returns a Promise — under the hood the native
@@ -1418,6 +1472,8 @@ const LivebuySDK = {
     // shopId value still forwarded below — see the module-level
     // `configuredShopId` doc comment for why.
     configuredShopId = options.shopId;
+    // vod-end-loop-rn-core: JS-side cache of the same value forwarded below (15th arg).
+    vodEndBehavior = resolveVodEndBehavior(options.vodEndBehavior);
     return LivebuyRNBridge.configure(
       // Defensive stringification at the bridge chokepoint: the native side (Android
       // `LivebuyRNModule.configure(apiKey: String, ...)`) requires a string — a JS number here
@@ -1450,7 +1506,29 @@ const LivebuySDK = {
       // LBEnvironment (unknown → production) and selects BOTH the data API base URL and the /stat
       // endpoint; RN never resolves a URL itself.
       options.environment ?? 'production',
+      // vod-end-loop-rn-core: VOD / 回放 natural-end behavior, default 'loop' — 15th positional
+      // arg, forwarded to native configure(...vodEndBehavior). Native maps the string →
+      // LBVodEndBehavior ('advance' → advance, anything else → loop) and performs the loop /
+      // advance itself.
+      vodEndBehavior,
     );
+  },
+
+  /**
+   * Synchronous read of the `vodEndBehavior` most recently passed to {@link configure}
+   * (`vod-end-loop-rn-core`). Default `'loop'` — including before `configure()` has
+   * ever been called, and whenever a `configure()` call omits the option.
+   *
+   * **No native round-trip.** The value is a JS-side cache of what `configure()` also
+   * forwarded to the native SDK, mirroring `isDirectCloseButtonEnabled()`'s
+   * synchronous-read pattern.
+   *
+   * Intended consumer: `react-native-reference-ui`'s drop-in player decides whether a
+   * VOD `ended` with no next video should close the player (`'advance'`) or not
+   * (`'loop'` — the native player is about to replay).
+   */
+  getVodEndBehavior(): LBVodEndBehavior {
+    return vodEndBehavior;
   },
 
   /**

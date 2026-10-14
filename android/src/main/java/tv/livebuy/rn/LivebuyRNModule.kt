@@ -41,6 +41,7 @@ import tv.livebuy.sdk.models.LBSpec
 import tv.livebuy.sdk.models.LBSpecOption
 import tv.livebuy.sdk.models.LBUser
 import tv.livebuy.sdk.models.LBVideoItem
+import tv.livebuy.sdk.models.LBVodEndBehavior
 import tv.livebuy.sdk.models.LBWidgetResponse
 import tv.livebuy.sdk.player.LivebuyPlayerView
 import java.util.UUID
@@ -180,6 +181,11 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         // LivebuySDK.configure(...environment); native selects BOTH the data API base URL and
         // the /stat endpoint. RN never resolves a URL itself.
         environment: String,
+        // vod-end-loop-rn-core: VOD / 回放 natural-end behavior wire string, default "loop" —
+        // 15th positional arg from JS. Mapped via [VodEndBehaviorWire] ("advance" → ADVANCE,
+        // anything else → LOOP) and forwarded to LivebuySDK.configure(...vodEndBehavior)
+        // (Android SDK 4.28.0+). The native player performs the loop / advance.
+        vodEndBehavior: String,
         promise: Promise,
     ) {
         // rn-configure-external-user-id-parity: include externalUserId so configure-time member-id
@@ -191,6 +197,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         // rn-stat-environment-forward-core: map the JS wire string → native LBEnvironment.
         // Unknown / anything but "develop" falls back to PRODUCTION (source-compatible safe default).
         val env = if (environment == "develop") LBEnvironment.DEVELOP else LBEnvironment.PRODUCTION
+        val vodEnd = if (VodEndBehaviorWire.isAdvance(vodEndBehavior)) LBVodEndBehavior.ADVANCE else LBVodEndBehavior.LOOP
         bridgeScope.launch {
             try {
                 LivebuySDK.configure(
@@ -207,6 +214,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                     enablePowerProfileAdaptation = enablePowerProfileAdaptation,
                     enableStatReporting = enableStatReporting,
                     environment = env,
+                    vodEndBehavior = vodEnd,
                 )
                 promise.resolve(null)
             } catch (e: LBError.NotConfigured) {

@@ -20,6 +20,7 @@ RCT_EXTERN_METHOD(configure:(nonnull NSNumber *)apiKey
                   enablePowerProfileAdaptation:(BOOL)enablePowerProfileAdaptation
                   enableStatReporting:(BOOL)enableStatReporting
                   environment:(NSString *)environment
+                  vodEndBehavior:(NSString *)vodEndBehavior
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 

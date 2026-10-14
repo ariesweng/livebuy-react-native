@@ -112,7 +112,16 @@ dependencies {
     // cuts a new published version; bump it the same way when that happens, don't
     // assume the literal version above stays current.
     //
-    // Current pin: 4.26.1 (rn-android-bridge-core-pin-4-26-1) — bumped from 4.26.0.
+    // Current pin: 4.28.0 (vod-end-loop-rn-core) — bumped from 4.26.1. REQUIRED, not routine:
+    // LivebuyRNModule.configure(...) now passes `vodEndBehavior = LBVodEndBehavior.LOOP/ADVANCE`,
+    // and both the `LBVodEndBehavior` enum and that trailing `configure` parameter exist only from
+    // Android SDK 4.28.0 (vod-end-loop-android-core). 4.28.0 also changes the core default: a VOD /
+    // 回放 that finishes now replays the current video (loop) instead of advancing to the next one;
+    // the bridge forwards the JS `vodEndBehavior` option so hosts can pick `'advance'` to keep the
+    // old behavior. (Same pin bump also aligns Android with the iOS side, whose previous `~> 4.23` range
+    // constraint already resolved 4.28.0 — before this the two platforms disagreed.)
+    //
+    // Previous pin: 4.26.1 (rn-android-bridge-core-pin-4-26-1) — bumped from 4.26.0.
     // Routine bump, NOT a symbol-gap fix: between 4.24.0 and 4.26.1 the core module's main
     // sources only changed comments. The reason to track these is the AAR's consumer R8 rules:
     // 4.26.0 (android-r8-consumer-rules-core) added the Gson-target keeps + `-dontwarn okhttp3.**
@@ -150,7 +159,7 @@ dependencies {
     // Prior pin history: 4.19.0 (routine) → 4.21.2 (ad-hoc bump, commit a71b45e05,
     // docs(rn-flutter-release-prep), 2026-09-21) → 4.22.0 (rn-android-bridge-core-
     // pin-4-22-0, fixed `liveDurationSeconds` + intro-engine seek/pause routing) →
-    // 4.23.0 → 4.24.0 → 4.26.0 → 4.26.1 (current).
+    // 4.23.0 → 4.24.0 → 4.26.0 → 4.26.1 → 4.28.0 (current).
     //
     // ⚠️ THIS PIN WILL GO STALE AGAIN — read before bumping it (or trusting it).
     // Always re-check bridge Kotlin source against the target version's CHANGELOG for
@@ -158,7 +167,7 @@ dependencies {
     // Before the NEXT `livebuy-react-native` release (real `--yes` publish, not
     // `--dry-run`), re-verify this pin against the real remote AAR the same way this
     // fix did — do not trust mavenLocal-from-HEAD compile success as proof.
-    implementation "tv.livebuy:livebuy:4.26.1"
+    implementation "tv.livebuy:livebuy:4.28.0"
 
     // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
     // MainScope / launch). The core SDK pulls it transitively but as `implementation`,

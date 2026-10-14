@@ -17,6 +17,8 @@ export type {
   LBFlushResult,
   // power-profile-adaptation (第 5 支 parity) — thermal power-profile tier wire name
   LBPowerProfile,
+  // vod-end-loop-rn-core — VOD / 回放 natural-end behavior wire string
+  LBVodEndBehavior,
   LBVideoItem,
   // video-linked-goods-core-rn — linked/featured product preview on a video's widget card
   LBFeaturedGood,

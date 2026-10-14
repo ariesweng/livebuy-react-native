@@ -92,6 +92,11 @@ final class LivebuyRNBridge: RCTEventEmitter {
         // Livebuy.configure(...environment:); native selects BOTH the data API base URL and
         // the /stat endpoint. RN never resolves a URL itself.
         environment: String,
+        // vod-end-loop-rn-core: VOD / 回放 natural-end behavior wire string, default "loop" —
+        // 15th positional arg from JS. Mapped via `vodEndBehaviorFromWire` ("advance" → .advance,
+        // anything else → .loop) and forwarded to Livebuy.configure(...vodEndBehavior:)
+        // (iOS SDK 4.28.0+). The native player performs the loop / advance.
+        vodEndBehavior: String,
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
@@ -104,6 +109,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
         // rn-stat-environment-forward-core: map the JS wire string → native LBEnvironment.
         // Unknown / anything but "develop" falls back to .production (source-compatible safe default).
         let env: LBEnvironment = (environment == "develop") ? .develop : .production
+        let vodEnd = LivebuyRNBridge.vodEndBehaviorFromWire(vodEndBehavior)
         Task {
             do {
                 try await Livebuy.configure(
@@ -117,7 +123,8 @@ final class LivebuyRNBridge: RCTEventEmitter {
                     enableConversionAttribution: enableConversionAttribution,
                     enablePowerProfileAdaptation: enablePowerProfileAdaptation,
                     enableStatReporting: enableStatReporting,
-                    environment: env
+                    environment: env,
+                    vodEndBehavior: vodEnd
                 )
                 resolve(nil)
             } catch LBSDKError.notConfigured {
@@ -126,6 +133,14 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 reject("CONFIGURE_ERROR", error.localizedDescription, error)
             }
         }
+    }
+
+    /// vod-end-loop-rn-core — pure JS wire string → native `LBVodEndBehavior` mapping.
+    /// Only the exact string "advance" selects `.advance`; anything else (incl. "loop" or an
+    /// unknown value) falls back to the `.loop` default — same fallback as the JS-side
+    /// `resolveVodEndBehavior` and the Android bridge's `VodEndBehaviorWire`.
+    static func vodEndBehaviorFromWire(_ wire: String?) -> LBVodEndBehavior {
+        return wire == "advance" ? .advance : .loop
     }
 
     // MARK: - Conversion attribution bridge (conversion-attribution-context-rn)

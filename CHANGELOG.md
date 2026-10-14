@@ -11,6 +11,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.10.0] - 2026-10-14
+
+> **core，minor，無 BREAKING 公開符號、但含預設行為改變（見下方 ⚠️）。** 跟上 iOS＋Android `4.28.0` 的
+> VOD／回放播完行為（見 iOS／Android `v4.28.0` release notes）。同步發
+> `livebuy-react-native-ui` `1.13.0`（純 metadata，peer 對齊）與 `livebuy-react-native-reference-ui` `1.14.0`
+> （advance 下無下一支自動關閉），各自發佈於其 mirror repo。
+>
+> ⚠️ **升級提醒**：host 需**同時**升級三套件（core `2.10.0`、ui `1.13.0`、reference-ui `1.14.0`）；core `2.10.0`
+> 需要原生 iOS／Android **`4.28.0`**——以 CocoaPods 消費的 host，Podfile 的 `LivebuySDK` `:podspec =>` URL 必須指向
+> `v4.28.0`（或更新）的 release。
+
+### Added
+
+- `LivebuySDK.configure()` 新增選填 `vodEndBehavior?: 'loop' | 'advance'`（型別 `LBVodEndBehavior`，預設 `'loop'`），
+  轉發給原生 `configure(..., vodEndBehavior:)`（`vod-end-loop-rn-core`）：
+  - `'loop'`（預設）：VOD／回放播完重播當前影片（有沒有下一支都一樣），播放狀態仍會先出現一次 `ended` 再回到 `playing`。
+  - `'advance'`：舊行為——有下一支就接著播，沒有就停在 `ended`。
+  - 直播（`liveStatus == 1`）結束不受影響。
+- `LivebuySDK.getVodEndBehavior(): LBVodEndBehavior`：同步讀回最近一次 `configure()` 的值（未設定為 `'loop'`），
+  不經原生。
+
+### Changed
+
+- ⚠️ **預設行為改變：VOD／回放播完改為重播當前影片**，不再自動接下一支。要維持舊行為請傳
+  `configure({ ..., vodEndBehavior: 'advance' })`。
+- Android 依賴 `tv.livebuy:livebuy` 由 `4.26.1` 升到 **`4.28.0`**（bridge 用到 4.28.0 才有的 API）。升級後 iOS／Android
+  兩端行為一致（先前 iOS 範圍約束已會拿到 `4.28.0`、Android 仍是舊行為）。
+- iOS 依賴下限由 `LivebuySDK ~> 4.23` 提高到 **`~> 4.28`**（同理；host 若把 `LivebuySDK` 鎖在 `4.28.0` 以下會無法解析）。
+  ⚠️ 以 CocoaPods 消費的 host，Podfile 中 `LivebuySDK` 的 `:podspec =>` URL **必須**改指 `v4.28.0`（或更新）的 release——
+  仍指向舊 release 的 podspec 時，`pod install` 會因不滿足 `~> 4.28` 而失敗。
+
+> drop-in 播放器在 `'advance'` 且無下一支時自動關閉的判斷屬 `livebuy-react-native-reference-ui`，見該套件
+> `1.14.0` 的 CHANGELOG（`rb-rn-vod-ended-no-next-close`）。
+>
+> **驗證範圍**：`npm run typecheck` 與 `npx jest` 全套通過（含 `vodEndBehavior` 轉發與 `getVodEndBehavior` 測試）。
+> **未經真機或模擬器實測。**
+
 ## [2.9.2] - 2026-10-02
 
 > **core，patch，零 BREAKING，零 JS／TS 與 bridge 原始碼變更。** 同步發 `livebuy-react-native-ui` `1.12.2`
