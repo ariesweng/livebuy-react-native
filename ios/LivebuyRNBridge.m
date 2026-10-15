@@ -34,6 +34,9 @@ RCT_EXTERN_METHOD(setUser:(NSDictionary *)map)
 RCT_EXTERN_METHOD(clearUser)
 RCT_EXTERN_METHOD(setGuestNickname:(NSString *)name)
 RCT_EXTERN_METHOD(setLanguage:(NSString *)lang)
+// i18n-language-source-rn-core: promise getter for core `Livebuy.currentLanguage`.
+RCT_EXTERN_METHOD(getLanguage:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 
 // MARK: - Conversion attribution bridge (conversion-attribution-context-rn)
 RCT_EXTERN_METHOD(captureAdClick:(NSString *)url)

@@ -6,6 +6,8 @@ import {
   discardJsPendingRetry,
   clearJsPendingRetries,
 } from './pendingRetryRegistry';
+import { getSdkEventEmitter } from './LivebuyEvents';
+import { createLanguageCache, type LBLanguageListener } from './languageCache';
 
 const { LivebuyRNBridge } = NativeModules;
 
@@ -1450,6 +1452,45 @@ let configuredShopId: string | undefined;
  */
 let vodEndBehavior: LBVodEndBehavior = 'loop';
 
+/**
+ * i18n-language-source-rn-core — JS-side synchronous cache of the native core's current
+ * language (see `languageCache.ts` for the race rule). Initial value `'en'` (= the native
+ * core's final fallback, `i18n-fallback-en-rn-core`); refreshed
+ * by a native read at module init, after every `configure()` settles and after every
+ * `setLanguage()`, and updated from every unified `LANGUAGE_CHANGED` event's `params.to`.
+ */
+const languageCache = createLanguageCache({ fetch: () => LivebuyRNBridge.getLanguage() });
+
+function refreshLanguageSilently(): void {
+  languageCache.refresh().catch(() => {
+    // Native read failed (bridge not ready / unexpected value) — keep the cached value.
+  });
+}
+
+/**
+ * Module init: subscribe the cache to `onSdkEvent` on the shared emitter (its own
+ * subscription — NOT `registerListener`, which would replace the host's handler) and do
+ * one native read. Note: native only forwards unified events while a native listener is
+ * installed (host `registerListener` / drop-in container); the native reads after
+ * `configure()` / `setLanguage()` cover the JS-initiated changes regardless.
+ */
+function initLanguageCache(): void {
+  if (!LivebuyRNBridge) return; // native module not linked — keep the fallback, never crash at import
+  try {
+    getSdkEventEmitter().addListener('onSdkEvent', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const event = raw as { eventName?: unknown; params?: { to?: unknown } | null };
+      if (event.eventName !== 'LANGUAGE_CHANGED') return;
+      languageCache.applyEvent(event.params?.to);
+    });
+  } catch {
+    // Emitter unavailable — the cache still refreshes via native reads.
+  }
+  refreshLanguageSilently();
+}
+
+initLanguageCache();
+
 const LivebuySDK = {
   /**
    * Initialize the SDK. Now returns a Promise — under the hood the native
@@ -1474,7 +1515,7 @@ const LivebuySDK = {
     configuredShopId = options.shopId;
     // vod-end-loop-rn-core: JS-side cache of the same value forwarded below (15th arg).
     vodEndBehavior = resolveVodEndBehavior(options.vodEndBehavior);
-    return LivebuyRNBridge.configure(
+    const result = LivebuyRNBridge.configure(
       // Defensive stringification at the bridge chokepoint: the native side (Android
       // `LivebuyRNModule.configure(apiKey: String, ...)`) requires a string — a JS number here
       // serializes as a native Double and crashes on the other side's `getString()`. Guard
@@ -1512,6 +1553,11 @@ const LivebuySDK = {
       // advance itself.
       vodEndBehavior,
     );
+    // i18n-language-source-rn-core: once native configure settles (either way — configure
+    // re-samples the system language and applies `lang` before resolving), re-read the
+    // current language into the JS cache. The returned value is unchanged.
+    Promise.resolve(result).then(refreshLanguageSilently, refreshLanguageSilently);
+    return result;
   },
 
   /**
@@ -1777,8 +1823,54 @@ const LivebuySDK = {
     );
   },
 
+  /**
+   * Tell the native SDK the host's language. Native decides whether it takes effect
+   * (unsupported values are rejected natively) and dispatches `LANGUAGE_CHANGED` only when
+   * the current language actually changes. The JS cache ({@link currentLanguage}) is
+   * re-read from native right after (bridge calls run in order on the native module queue).
+   */
   setLanguage(lang: LBLocaleCode): void {
     LivebuyRNBridge.setLanguage(lang);
+    refreshLanguageSilently();
+  },
+
+  /**
+   * Async read of the native core's current language (`i18n-language-source-rn-core`):
+   * iOS `Livebuy.currentLanguage` / Android `LivebuySDK.currentLanguage`. Always one of
+   * the 5 supported codes. Priority (decided natively): `configure({ lang })` /
+   * {@link setLanguage} > device system language (when it maps to a supported code) >
+   * API `lang` > `'en'`. Safe before {@link configure}. Also refreshes the
+   * synchronous {@link currentLanguage} cache (unless a newer `LANGUAGE_CHANGED` event or
+   * a newer read superseded this one — the resolved value is still the native value).
+   */
+  getLanguage(): Promise<LBLocaleCode> {
+    return languageCache.refresh();
+  },
+
+  /**
+   * Synchronous snapshot of the current language (`i18n-language-source-rn-core`).
+   * `'en'` (the native final fallback) until the first native read lands; then kept up to date by native reads
+   * (module init, after {@link configure}, after {@link setLanguage}) and by every
+   * unified `LANGUAGE_CHANGED` event (`params.to`). Intended for render-time reads by
+   * `react-native-reference-ui`'s string tables.
+   *
+   * Caveat: language changes that originate natively (API `lang`, Android runtime
+   * system-language change) reach JS via `LANGUAGE_CHANGED`, which the native bridge
+   * forwards only while a native listener is installed ({@link registerListener} or a
+   * drop-in container); call {@link getLanguage} to force a re-read.
+   */
+  get currentLanguage(): LBLocaleCode {
+    return languageCache.current;
+  },
+
+  /**
+   * Subscribe to changes of {@link currentLanguage} (`i18n-language-source-rn-core`).
+   * The callback fires only when the cached value actually changes (same value → no
+   * call), with the new code. Multiple subscribers are supported (unlike
+   * `registerListener`, which keeps a single handler). Returns an unsubscribe function.
+   */
+  addLanguageListener(listener: LBLanguageListener): () => void {
+    return languageCache.addListener(listener);
   },
 
   /**

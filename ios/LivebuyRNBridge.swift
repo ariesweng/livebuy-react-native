@@ -444,6 +444,18 @@ final class LivebuyRNBridge: RCTEventEmitter {
         Livebuy.setLanguage(lang)
     }
 
+    // MARK: - currentLanguage accessor (i18n-language-source-rn-core)
+    //
+    // Resolves core `Livebuy.currentLanguage` (i18n-language-source-ios-core): always one
+    // of zh-TW / zh-CN / en / ms-MY / id-ID, safe before configure (never throws). Needs a
+    // native LivebuySDK that ships `currentLanguage` (the pin is bumped at release).
+    @objc func getLanguage(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        resolve(Livebuy.currentLanguage)
+    }
+
     @objc func notifyCheckoutCompleted(
         _ orderId: String, sdkTrackCodes: [String], items: [NSDictionary]?
     ) {

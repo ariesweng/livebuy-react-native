@@ -35,10 +35,12 @@ Pod::Spec.new do |s|
   # core is now published as a CocoaPods pod (livebuy-ios-sdk/LivebuySDK.podspec —
   # a vendored LivebuySDK.xcframework + the pinned AWS IVS 1.52.0 engine),
   # mirroring the SwiftPM dist. Declared here so autolink pulls it transitively:
-  # `~> 4.28` = CocoaPods optimistic operator, [4.28.0, 5.0.0). Floor raised from `4.23`
-  # (vod-end-loop-rn-core) because the bridge now passes `vodEndBehavior:` to
-  # `Livebuy.configure(...)` and uses `LBVodEndBehavior`, which exist only from iOS SDK 4.28.0
-  # (vod-end-loop-ios-core). (Earlier floor history: `4.0` → `4.23` for
+  # `~> 4.29` = CocoaPods optimistic operator, [4.29.0, 5.0.0). Floor raised from `4.28`
+  # (bridge-native-pin-4-29-0-core) because the bridge's `getLanguage` now reads
+  # `Livebuy.currentLanguage`, which exists only from iOS SDK 4.29.0
+  # (i18n-language-source-ios-core). Previous floor `4.28` (vod-end-loop-rn-core): the bridge
+  # passes `vodEndBehavior:` to `Livebuy.configure(...)` and uses `LBVodEndBehavior`, which exist
+  # only from iOS SDK 4.28.0 (vod-end-loop-ios-core). (Earlier floor history: `4.0` → `4.23` for
   # `Livebuy.retryPendingAction(token:)`, rn-auth-required-pending-action-retry-core.) Note 4.28.0
   # also changes the core default to replay a finished VOD / 回放 (loop); the bridge forwards the
   # JS `vodEndBehavior` option so hosts can pick `'advance'`. The major line is still aligned to the major
@@ -50,23 +52,20 @@ Pod::Spec.new do |s|
   # is a point-in-time snapshot of "current major line", not a lock on one version — it
   # will need bumping again if core ever cuts a new major; don't assume `4.0` stays the
   # answer forever.
-  s.dependency "LivebuySDK", "~> 4.28"
+  s.dependency "LivebuySDK", "~> 4.29"
   #
   # RESOLUTION — the consumer's Podfile MUST make the `LivebuySDK` pod findable
   # (exactly like SwiftPM consumers add `.package(url:)`, or the Android SDK's
-  # Pages Maven repo). Pick ONE:
-  #   • spec repo (recommended once published):
-  #       source "https://github.com/ariesweng/livebuy-ios-podspecs.git"
-  #       source "https://cdn.cocoapods.org"
-  #   • release-attached podspec (zero extra infra — attached to each dist release;
+  # Pages Maven repo). There is currently NO public CocoaPods spec repo, so:
+  #   • release-attached podspec (the supported integration path — attached to each dist release;
   #     substitute the release tag for whatever the current published version is —
   #     this URL pattern, not the specific version number, is what's stable):
   #       pod "LivebuySDK", :podspec =>
   #         "https://github.com/ariesweng/livebuy-ios-sdk/releases/download/<current release tag>/LivebuySDK.podspec"
-  #   • local dev (monorepo checkout):
+  #   • local dev only (Livebuy-internal monorepo checkout):
   #       pod "LivebuySDK", :podspec => "<repo>/livebuy-ios-sdk/LivebuySDK.podspec"
   #
-  # Without one of these, `pod install` stops with "unable to find a specification
+  # Without either, `pod install` stops with "unable to find a specification
   # for LivebuySDK" — the correct, expected plan-B behaviour (same as SwiftPM with
   # no `.package(url:)`), telling the integrator to add the core pod source.
   # ───────────────────────────────────────────────────────────────────────────

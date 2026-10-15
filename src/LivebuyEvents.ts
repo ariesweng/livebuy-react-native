@@ -408,6 +408,17 @@ export type LBEventHandler = (event: LBSdkEvent) => void;
 let emitter: NativeEventEmitter | null = null;
 let subscription: EmitterSubscription | null = null;
 
+/**
+ * The module-wide `NativeEventEmitter` for `LivebuyRNBridge`. Exported (internal —
+ * not re-exported from `index.ts`) so `LivebuySDK.ts`'s language cache
+ * (`i18n-language-source-rn-core`) adds its OWN `onSdkEvent` subscription on the
+ * same emitter instead of going through {@link registerListener}, which would
+ * replace the host's handler.
+ */
+export function getSdkEventEmitter(): NativeEventEmitter {
+  return getEmitter();
+}
+
 function getEmitter(): NativeEventEmitter {
   if (!emitter) {
     emitter = new NativeEventEmitter(LivebuyRNBridge);

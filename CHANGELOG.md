@@ -11,6 +11,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.11.0] - 2026-10-15
+
+> **core，minor，無 BREAKING 公開符號、但含預設行為改變（見下方 ⚠️）。** 跟上 iOS＋Android `4.29.0` 的語言來源與
+> 語言 fallback（見 iOS／Android `v4.29.0` release notes）。同步發
+> `livebuy-react-native-ui` `1.14.0`（純 metadata，peer 對齊）與 `livebuy-react-native-reference-ui` `1.15.0`
+> （五語系字串表＋執行中切換語言），各自發佈於其 mirror repo。
+>
+> ⚠️ **升級提醒**：host 需**同時**升級三套件（core `2.11.0`、ui `1.14.0`、reference-ui `1.15.0`）；core `2.11.0`
+> 需要原生 iOS／Android **`4.29.0`**——以 CocoaPods 消費的 host，Podfile 的 `LivebuySDK` `:podspec =>` URL 必須指向
+> `v4.29.0`（或更新）的 release；Android host 的 root repositories 必須含 Livebuy Maven 倉庫
+> `https://ariesweng.github.io/livebuy-android-sdk/`（在 Android 專案根 `build.gradle` 的 `allprojects { repositories { ... } }` 加
+> `maven { url "https://ariesweng.github.io/livebuy-android-sdk/" }`，否則 Gradle 報 `Could not find tv.livebuy:livebuy:4.29.0`）。
+
+### Added
+
+- JS 讀得到目前語言（`i18n-language-source-rn-core`）。語言優先序與 `LANGUAGE_CHANGED` 派發時機由原生 core 決定：
+  - `LivebuySDK.getLanguage(): Promise<LBLocaleCode>`：讀原生 core 的目前語言（iOS `Livebuy.currentLanguage`／Android
+    `LivebuySDK.currentLanguage`），`configure()` 前也可呼叫。
+  - `LivebuySDK.currentLanguage`：同步快取（初始 `'en'`，見下方 Changed），模組載入、`configure()`、`setLanguage()` 後自動向原生重讀，
+    收到 `LANGUAGE_CHANGED` 時以 `params.to` 更新；晚到的原生讀取不會蓋掉較新的事件值。
+  - `LivebuySDK.addLanguageListener(cb): () => void`：快取值實際改變才通知（可多個訂閱者），回傳取消訂閱函式。
+    型別 `LBLanguageListener` 由套件入口匯出。
+  - **已知限制**：原生端發起的語言變更（API `lang`、Android 執行中切換系統語言）要等原生 listener 已安裝（`registerListener`
+    或 drop-in 容器）才會即時進入快取；可呼叫 `getLanguage()` 強制重讀。
+
+### Changed
+
+- ⚠️ **預設行為改變：語言最終 fallback 由 `zh-TW` 改為 `en`**（`i18n-fallback-en-rn-core`）。優先序變成 host > 手機系統語言 >
+  API `lang` > `en`，由原生 iOS／Android core 決定（sibling `i18n-fallback-en-ios-core`／`i18n-fallback-en-android-core`）。
+  也就是說：host 沒指定語言、手機語言不在支援的五種內、後端也沒回 `lang` 時，畫面與送出的 `lang` 會是 `en`（之前是 `zh-TW`）。
+  RN JS 端的同步快取 `LivebuySDK.currentLanguage` 在第一次原生讀取回來前的初始值（`LB_FALLBACK_LOCALE`）跟著改為 `'en'`，
+  與原生 fallback 一致。host 若需要舊行為，請明確 `configure({ lang: 'zh-TW' })` 或 `setLanguage('zh-TW')`。
+- Android 依賴 `tv.livebuy:livebuy` 由 `4.28.0` 升到 **`4.29.0`**（`bridge-native-pin-4-29-0-core`；bridge 的
+  `getLanguage` 讀 `LivebuySDK.currentLanguage`，4.29.0 才有）。升級後 iOS／Android 兩端語言行為一致（`2.10.0` 時 iOS
+  範圍約束已會解析到 `4.29.0`、Android 仍是舊行為）。
+- iOS 依賴下限由 `LivebuySDK ~> 4.28` 提高到 **`~> 4.29`**（同理，bridge 讀 `Livebuy.currentLanguage`）。
+  ⚠️ 以 CocoaPods 消費的 host，Podfile 中 `LivebuySDK` 的 `:podspec =>` URL **必須**改指 `v4.29.0`（或更新）的 release——
+  仍指向舊 release 的 podspec 時，`pod install` 會因不滿足 `~> 4.29` 而失敗。
+
+> **驗證範圍**：`npm run typecheck` 與 `npx jest` 全套通過；bridge 原生碼已對已發佈的原生 `4.29.0` 實際編譯通過
+> （iOS／Android）。**未經真機或模擬器實測。**
+
 ## [2.10.0] - 2026-10-14
 
 > **core，minor，無 BREAKING 公開符號、但含預設行為改變（見下方 ⚠️）。** 跟上 iOS＋Android `4.28.0` 的

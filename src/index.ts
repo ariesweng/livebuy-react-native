@@ -115,6 +115,9 @@ export type {
   LBReplayChatComment,
 } from './LivebuyEvents';
 
+// i18n-language-source-rn-core — `LivebuySDK.addLanguageListener` callback type
+export type { LBLanguageListener } from './languageCache';
+
 export { LBRoute } from './LBRoute';
 export type { LBRouteName, LBRoutePath } from './LBRoute';
 

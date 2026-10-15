@@ -619,6 +619,17 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         LivebuySDK.setLanguage(lang)
     }
 
+    // MARK: - currentLanguage accessor (i18n-language-source-rn-core)
+    //
+    // Resolves core `LivebuySDK.currentLanguage` (i18n-language-source-android-core):
+    // always one of zh-TW / zh-CN / en / ms-MY / id-ID, safe before configure (never
+    // throws). Needs a native tv.livebuy:livebuy that ships `currentLanguage` (the pin is
+    // bumped at release).
+    @ReactMethod
+    fun getLanguage(promise: Promise) {
+        promise.resolve(LivebuySDK.currentLanguage)
+    }
+
     @ReactMethod
     fun notifyCheckoutCompleted(orderId: String, sdkTrackCodes: ReadableArray, items: ReadableArray?) {
         val codes = (0 until sdkTrackCodes.size()).map { sdkTrackCodes.getString(it) ?: "" }
