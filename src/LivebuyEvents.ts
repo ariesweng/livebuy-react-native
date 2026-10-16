@@ -176,7 +176,8 @@ export interface LBAwardClaimIntentParams { id: string; award_type: string; emai
  *   `award_code`（回應 `code`，**discount-only**）、`award_expiration`（回應 `expiration_time`，**discount-only**）。
  *
  * **失敗路徑白名單**：失敗（body `code:500` / 其他 code / `email` 缺漏 fail-fast 連 API 都沒送）時
- * **只**帶 `status` / `award_type` / `winner_id`（+ `event_title` 非空時），**不會**有任何 API 回應來源欄位。
+ * **只**帶 `status` / `award_type` / `winner_id`（+ `event_title` 非空時；+ 後端回應帶頂層 `error_code` 時的
+ * `backend_error_code`），**不會**有任何 API 回應來源欄位。
  *
  * **省略規則**：SDK 對 nil / 空字串的欄位 **整個省略該 key**（host 端讀到 `undefined`），
  * **絕不**以空字串佔位。`award_stock` 例外於「空值」判斷——**有值即帶，含 `0`**（代表已無庫存）。
@@ -214,6 +215,15 @@ export interface LBAwardClaimResultParams {
   award_code?: string | null;
   /** 回應 `expiration_time` 折扣到期日；**discount-only**（product award 不帶）。 */
   award_expiration?: string | null;
+  // ── 失敗原因（僅領獎失敗、且後端回應帶頂層 error_code 才有）──────────
+  /**
+   * 後端回應頂層 `error_code` 的原始字串（`backend-error-code-rn-core`），供 host 區分
+   * `award_already_claimed`（本人已領過）/ `award_not_found` / `claim_failed`；不認得的代碼原樣透傳。
+   * **僅失敗時、有值才帶**：成功、`email` 缺漏 fail-fast（沒送 API）、舊後端（不回 `error_code`），或 RN 包的
+   * 原生 core 不含 backend-error-code（iOS / Android core 4.29.0 及更早；需 4.29.0 之後的下一版）時整個省略
+   * （`undefined`）。此鍵不屬於上方「API 回應來源」欄位。native bridge 整包泛型透傳，pin 升版後自動到達 JS。
+   */
+  backend_error_code?: string;
 }
 
 /**
@@ -280,6 +290,151 @@ export interface LBViewCartParams {
   position: number;
 }
 
+// MARK: - chat-raw-compose-rn-core — 聊天室組字原始欄位與組好的句子
+//
+// 後端 `sdk-i18n-raw-data` 讓聊天室改由 SDK 用原始資料組字。iOS / Android 原生 core
+// （chat-raw-compose-ios-core / chat-raw-compose-android-core）在 `POLL_RECEIVED` 每筆
+// push / user / rush / win / top 與 `CHAT_HISTORY_LOADED` 每筆 comment 上，加帶後端原始鍵
+// （有值才帶）與原生 core 依當下語言組好的 `composed_*`。句型表只放原生 core：RN **不另做組字**，
+// 直接用原生給的 `composed_*`。
+//
+// 最低原生版本：含 chat-raw-compose 的原生 core 版本（iOS / Android core 的下一版）。RN native
+// bridge 對事件 params 整包泛型透傳，新鍵在 bridge 的原生 core pin 升到該版本後才會到達 JS；
+// 搭配較舊的原生 core 時，以下新鍵一律 absent（`undefined`）。以下型別僅為編譯期文件 / 型別
+// （additive，不影響 runtime）。
+
+/**
+ * 聊天室組字原始欄位（wire snake_case，對應後端 `sdk-i18n-raw-data` 新增鍵）。全部 optional：
+ * 後端沒送或原生 core 版本較舊時 absent。原生 core 在值為 null 時省略 key，JS 端不會收到 `null`。
+ * 各列實際會帶哪些鍵見各列型別（例如 user / rush 只有 `actor_name` / `is_anonymous`）。
+ */
+export interface LBChatRawWireFields {
+  /** 行為者名稱（join / purchase / win / narrate 類）。 */
+  actor_name?: string;
+  /** 是否匿名（原生 core 已正規化為 boolean）。 */
+  is_anonymous?: boolean;
+  /** 活動狀態：`"begin"` / `"win"` / `"end"`（未知值原樣透傳）。 */
+  event_status?: string;
+  /** 活動名稱。 */
+  event_title?: string;
+  /** 中獎者名稱清單（原生 core 已只保留字串）。 */
+  winners?: string[];
+  /** 開賣商品名稱（直播賣場來源）。 */
+  goods_name?: string;
+  /** 開賣句型（商品頁來源，含 `{price}` / `{keyword}` 佔位符）。 */
+  onsale_template?: string;
+  /** 直播主名；空字串代表沒設定（原生 core 組字時改用主播預設名）。 */
+  host_name?: string;
+  /** 回覆句型（含 `{live_master}` 佔位符）。 */
+  reply_template?: string;
+}
+
+/**
+ * 原生 core 組好的句子（`composed_text`）。原生 core 依該列 kind **一律帶**；缺原始欄位時等於後端
+ * `text`。payload 在派發當下以當時 SDK 語言組好，之後換語言不重組已派發的事件。
+ *
+ * **缺時請退回 `text`**：需含 chat-raw-compose 的原生 core 版本（iOS / Android core 4.29.0 之後的下一版）；搭配更舊的原生 core 時此鍵 absent，請以 `row.composed_text ?? row.text` 顯示。
+ */
+export interface LBChatComposedTextField {
+  composed_text?: string;
+}
+
+/**
+ * 原生 core 組好的名字（`composed_name`）。需含 chat-raw-compose 的原生 core 版本（iOS / Android core
+ * 4.29.0 之後的下一版）；搭配更舊的原生 core 時此鍵 absent，請退回 `name`（`row.composed_name ?? row.name`）。
+ */
+export interface LBChatComposedNameField {
+  composed_name?: string;
+}
+
+/**
+ * 原生 core 組好的回覆（`composed_reply`，已以直播主名替換 `{live_master}`）。需含 chat-raw-compose 的
+ * 原生 core 版本（iOS / Android core 4.29.0 之後的下一版）；搭配更舊的原生 core 時此鍵 absent，請退回
+ * `reply`（`row.composed_reply ?? row.reply`）。既有 `reply` 仍原樣透傳、不替換。
+ */
+export interface LBChatComposedReplyField {
+  composed_reply?: string;
+}
+
+/**
+ * `POLL_RECEIVED` 的單筆 `push`（主播敘述 / 留言 / 直播主回覆 / 開賣 / 活動等）。既有鍵沿用原生
+ * `pollReceivedEventParams` 的 wire shape；組字新鍵見 {@link LBChatRawWireFields}。
+ */
+export interface LBPollPushItem
+  extends LBChatRawWireFields,
+    LBChatComposedTextField,
+    LBChatComposedNameField,
+    LBChatComposedReplyField {
+  text: string;
+  color: string;
+  name: string;
+  /** 判型 wire 字串（narrate / comment / host / host_reply / ai_reply / onsale / event；未知直通）。 */
+  kind: string;
+  reply: string;
+  reply_color: string;
+  eid?: number;
+  /** 活動關鍵字（組字 event 句型也用它）。 */
+  ek?: string;
+  at?: string;
+  ct?: string;
+  p?: string;
+  /** 已格式化開賣價（onsale 才有；組字 onsale 句型也用它）。 */
+  price?: string;
+  id?: string;
+}
+
+/** `POLL_RECEIVED` 的單筆 `user`（加入觀看）/ `rush`（搶購）。 */
+export interface LBPollActorItem
+  extends Pick<LBChatRawWireFields, 'actor_name' | 'is_anonymous'>,
+    LBChatComposedTextField {
+  text: string;
+  color: string;
+}
+
+/** `POLL_RECEIVED` 的單筆 `win`（中獎）。 */
+export interface LBPollWinItem
+  extends Pick<LBChatRawWireFields, 'actor_name' | 'is_anonymous'>,
+    LBChatComposedTextField,
+    LBChatComposedNameField {
+  text: string;
+  color: string;
+  name: string;
+  eid?: number;
+}
+
+/** `POLL_RECEIVED` 的 `top`（置頂留言；有釘選才帶）。 */
+export interface LBPollTopItem
+  extends Pick<LBChatRawWireFields, 'host_name'>,
+    LBChatComposedTextField,
+    LBChatComposedNameField {
+  kind: string;
+  text: string;
+  name: string;
+  id: number;
+}
+
+/**
+ * `POLL_RECEIVED` params 的聊天部分（push / user / rush / win / top）。
+ *
+ * **刻意未列入 {@link LBSdkEventParamsMap}**：`POLL_RECEIVED` params 另有其他鍵（例如直播設定與公告
+ * 相關欄位），本型別只描述聊天部分，以 index signature 保留其餘鍵為 `unknown`；把 `POLL_RECEIVED`
+ * 收緊成 typed 需完整盤點所有鍵並驗證下游套件，另案處理。host 可自行轉型：
+ * `const p = event.params as LBPollReceivedParams;`
+ */
+export interface LBPollReceivedParams {
+  last: number;
+  push: LBPollPushItem[];
+  user: LBPollActorItem[];
+  rush: LBPollActorItem[];
+  win: LBPollWinItem[];
+  /** 首輪 backlog 重放訊號（chat-history-dedupe-core）。 */
+  is_backlog?: boolean;
+  live_end?: number;
+  /** 置頂留言；取消釘選時 absent。 */
+  top?: LBPollTopItem;
+  [key: string]: unknown;
+}
+
 /**
  * `CHAT_HISTORY_LOADED` 的單筆回放歷史留言（replay-chat-history-load +
  * replay-chat-timeline-sync）。
@@ -287,8 +442,17 @@ export interface LBViewCartParams {
  * `time` = **距影片開始的播放偏移秒數**（String wire；後端可能回 Int，SDK 跨端統一保留 String —
  * JS Number 精度考量）。例如 `time === "12"` 代表這則留言在影片第 12 秒被貼。headless host 可用它自做
  * 彈幕式時間軸同步（依播放進度漸進 reveal）。
+ *
+ * chat-raw-compose-rn-core：另可帶組字原始欄位 `is_anonymous` / `host_name` / `reply_template`（有值
+ * 才帶）與原生 core 組好的 `composed_text` / `composed_name` / `composed_reply`（需含 chat-raw-compose
+ * 的原生 core 版本；缺時請退回 `text` / `name` / `reply`）。`onReplayChatRevealed` 的漸進揭露通道由 RN
+ * native bridge 手寫 payload，目前尚未帶這些鍵（待 bridge 的原生 core pin 升版時補上）。
  */
-export interface LBReplayChatComment {
+export interface LBReplayChatComment
+  extends Pick<LBChatRawWireFields, 'is_anonymous' | 'host_name' | 'reply_template'>,
+    LBChatComposedTextField,
+    LBChatComposedNameField,
+    LBChatComposedReplyField {
   text: string;
   name: string;
   color: string;

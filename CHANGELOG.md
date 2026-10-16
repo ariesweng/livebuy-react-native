@@ -11,6 +11,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.12.0] - 2026-10-16
+
+> **core，minor，無 BREAKING 公開符號、但含經原生 core 繼承的行為改變（見下方 ⚠️）。** 原生依賴升到 iOS／Android **`4.30.0`**
+> （見 `docs/release-notes/v4.30.0.md`）。同步發 `livebuy-react-native-ui` `1.15.0`（聊天改用原生組好的句子）
+> 與 `livebuy-react-native-reference-ui` `1.16.0`（livebuy-flutter-sdk issue #1／#2 同款修正），見下兩段。
+>
+> ⚠️ **升級提醒**：host 需**同時**升級三套件（core `2.12.0`、ui `1.15.0`、reference-ui `1.16.0`）；core `2.12.0` 需要原生 iOS／Android
+> **`4.30.0`**——以 CocoaPods 消費的 host，Podfile 的 `LivebuySDK` `:podspec =>` URL 必須改指 `v4.30.0`（或更新）的 release，否則
+> `pod install` 會因不滿足 `~> 4.30` 而失敗；Android host 的 root repositories 必須含 Livebuy Maven 倉庫。
+
+### Added
+
+- 後端錯誤代碼型別（`backend-error-code-rn-core`）：`LBAwardClaimResultParams` / `LBSdkConfigLoadFailedParams` 新增 optional
+  `backend_error_code`；`LBError` 中可能來自後端的成員新增 optional `backendErrorCode`（新型別 `LBBackendErrorCodeField`）；匯出
+  `pickBackendErrorCode(raw)`；`addToCart` 的 reject 解碼保留 bridge 附上的代碼。事件鍵隨原生 core `4.30.0`，在後端新版上線後才會有值；
+  錯誤物件上的代碼另需 bridge 原生轉送（尚未做），目前為 `undefined`。
+  見 `docs/migration/backend-error-code.md`。
+- 聊天室原始欄位與組好的句子的 TS 型別（`chat-raw-compose-rn-core`）：`LBChatRawWireFields`（9 個原始鍵）、`composed_text` /
+  `composed_name` / `composed_reply` 欄位型別，`POLL_RECEIVED` 聊天部分的 `LBPollReceivedParams` 等型別（不列入 `LBSdkEventParamsMap`，以
+  `event.params as LBPollReceivedParams` 取用）；`LBReplayChatComment` 新增 `is_anonymous` / `host_name` / `reply_template` 與 `composed_*`
+  （全部 optional，缺時請退回 `text` / `name` / `reply`）。RN 不另做組字，句型表只在原生 core。`onReplayChatRevealed` 的 JS 解碼改為保留新鍵。
+  新鍵在後端 `sdk-i18n-raw-data` 上線後才會出現。
+
+### Changed
+
+- ⚠️ **後端 `error_code` 優先判定（經原生 core `4.30.0` 繼承；只在後端新版
+  回應帶 `error_code` 時生效，後端尚未部署）**：錯誤種類不增加，但少數情況的錯誤種類會改變（例如聊天以外的請求遇到 `video_not_found` 一律為
+  `videoNotFound`、簽章錯誤不再被當成需要登入）。JS 程式碼無變更。見
+  `docs/migration/backend-error-code.md` 第 5 節。
+- ⚠️ **請求 `lang` 與商家語言（經原生 core `4.30.0` 繼承）**：SDK 請求只在
+  host 指定語言或手機語言對應成功時帶 `lang`，加入購物車／加購追蹤回報不再一律帶（其餘情況由後端用商城站點語系）；商家語言另從
+  `/sdk/config` 回應的 `extensions.lang` 取得（後端尚未上線），只開播放器的 host 也可能在 `configure` 後收到 `LANGUAGE_CHANGED`。JS 程式碼
+  無變更。見 `docs/migration/sdk-i18n-raw-data.md`。
+- ⚠️ **advance 自動接播跳過播不了的影片（經原生 core `4.30.0` 繼承）**：`vodEndBehavior: 'advance'` 時先檢查下一支，跳過找不到的影片與
+  沒有回放檔的已結束直播；全部播不了時停在 ended，`VIDEO_STATE_CHANGE` 帶 `advance_exhausted: true`。預設的重播不受影響。
+- **原生依賴升到 `4.30.0`**（`bridge-native-pin-4-30-0-core`）：Android `tv.livebuy:livebuy:4.30.0`、iOS podspec `LivebuySDK ~> 4.30`。
+- **頻道資料改帶 `other_goods`**（`rn-other-goods-channel-bridge-core`）：原生 bridge 的 `channelChange` 轉發跨影片「更多商品」的完整商品
+  （含規格、庫存、`video_id`），供 reference-ui 推薦卡使用。
+
+### Notes
+
+- 後端上線後舊版 SDK 的聊天室 `text` 會在 `X-API-Sunset` 期滿後移除，自繪聊天 UI 請改讀 `composed_*`。原生 `emitReplayChatRevealed` 尚未補新鍵（另案）。
+
 ## [2.11.0] - 2026-10-15
 
 > **core，minor，無 BREAKING 公開符號、但含預設行為改變（見下方 ⚠️）。** 跟上 iOS＋Android `4.29.0` 的語言來源與

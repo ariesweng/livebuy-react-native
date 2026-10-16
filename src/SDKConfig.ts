@@ -51,6 +51,15 @@ export interface LBSdkConfigLoadFailedParams {
   source: LBSdkConfigLoadFailedSource;
   fell_back_to_default: boolean;
   error_code: string;
+  /**
+   * 後端回應頂層 `error_code` 的原始字串（`backend-error-code-rn-core`，後端錯誤代碼目錄，例如
+   * `shop_not_found` / `shop_disabled` / `unknown_error`）。**有值才帶**：只在 config 抓取失敗來自後端回應、
+   * 且該回應帶 `error_code` 時出現；網路失敗、快取損毀、舊後端（不回 `error_code`）或 RN 包的原生 core
+   * 不含 backend-error-code（iOS / Android core 4.29.0 及更早；需 4.29.0 之後的下一版）時整個省略（`undefined`）。
+   * 與上方 `error_code`（SDK 公開穩定字串）是兩個不同的鍵，`error_code` 的值不變。
+   * native bridge 對事件 params 整包泛型透傳，bridge 的原生 pin 升版後此鍵自動到達 JS。
+   */
+  backend_error_code?: string;
 }
 
 export type LBSdkConfigRefreshedSource = 'background_refresh' | 'refresh';

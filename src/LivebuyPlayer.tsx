@@ -705,8 +705,35 @@ export function mapReplayChatRevealed(wire: { comments?: unknown }): LBReplayCha
       reply_color: str(r?.reply_color),
       time: str(r?.time),
       kind: str(r?.kind),
+      ...pickReplayChatComposeKeys(r),
     };
   });
+}
+
+const REPLAY_CHAT_COMPOSE_STRING_KEYS = [
+  'host_name',
+  'reply_template',
+  'composed_text',
+  'composed_name',
+  'composed_reply',
+] as const;
+
+// chat-raw-compose-rn-core — forward the optional chat-compose keys (`is_anonymous` / `host_name` /
+// `reply_template` + native-core `composed_*`) when the wire row carries them with the right type;
+// absent / wrong-typed → key omitted (never `''`, so `row.composed_text ?? row.text` keeps working).
+// The native bridge's hand-built `LBReplayChatRevealed` payload does not send these yet (pending the
+// bridge's native-core pin bump); this only keeps the JS decode from dropping them once it does.
+export function pickReplayChatComposeKeys(
+  r: Record<string, unknown> | null | undefined,
+): Partial<LBReplayChatComment> {
+  const out: Partial<LBReplayChatComment> = {};
+  if (r == null) return out;
+  for (const key of REPLAY_CHAT_COMPOSE_STRING_KEYS) {
+    const v = r[key];
+    if (typeof v === 'string') out[key] = v;
+  }
+  if (typeof r.is_anonymous === 'boolean') out.is_anonymous = r.is_anonymous;
+  return out;
 }
 
 /**

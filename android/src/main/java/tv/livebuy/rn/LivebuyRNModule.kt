@@ -1208,6 +1208,11 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             // 14 fields) — `channel.hot[]`/`channel.prev[]` are deliberately NOT forwarded here
             // (no consumer; EndScreen no longer uses `hot[]`).
             putArray("next", navItemsArray(channel.next))
+            // rn-other-goods-channel-bridge-core — additive. Cross-video「更多商品」products
+            // (`channel.otherGoods`, channel-sourced), the SAME product wire shape as `products`
+            // (incl. specifications / specOptions / stock / videoId), so reference-ui can open a
+            // tapped recommendation with the REAL product.
+            putArray("other_goods", productsArray(channel.otherGoods))
             // rn-channel-notice-bridge-core — additive. Channel announcement text, read from
             // TOP-LEVEL channel.notice/channel.sysNotice (NOT channel.shop). Raw passthrough, not
             // interpreted here. Reaches the host at channel-load time via this event, rather than

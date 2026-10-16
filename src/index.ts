@@ -1,6 +1,8 @@
 export { default as LivebuySDK } from './LivebuySDK';
 // event-payload-typed-accessors-rn-core — LBCartTrack.attributeFields parity convenience accessor
 export { cartTrackAttributeFields } from './LivebuySDK';
+// backend-error-code-rn-core — decode the backend raw error_code from a bridge reject
+export { pickBackendErrorCode } from './LivebuySDK';
 export type {
   LBUser,
   LBConfigOptions,
@@ -11,6 +13,8 @@ export type {
   LBPollResponse,
   LBPlayerState,
   LBError,
+  // backend-error-code-rn-core — optional backendErrorCode on backend-originated LBError members
+  LBBackendErrorCodeField,
   LBLocaleCode,
   LBCheckoutItem,
   LBFlushStatus,
@@ -113,6 +117,16 @@ export type {
   // replay-chat-history-load + replay-chat-timeline-sync — CHAT_HISTORY_LOADED params (full-list + per-comment time)
   LBChatHistoryLoadedParams,
   LBReplayChatComment,
+  // chat-raw-compose-rn-core — 聊天室組字原始欄位 + 原生 core 組好的 composed_*（POLL_RECEIVED / CHAT_HISTORY_LOADED）
+  LBChatRawWireFields,
+  LBChatComposedTextField,
+  LBChatComposedNameField,
+  LBChatComposedReplyField,
+  LBPollReceivedParams,
+  LBPollPushItem,
+  LBPollActorItem,
+  LBPollWinItem,
+  LBPollTopItem,
 } from './LivebuyEvents';
 
 // i18n-language-source-rn-core — `LivebuySDK.addLanguageListener` callback type

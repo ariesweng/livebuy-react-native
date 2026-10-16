@@ -112,7 +112,12 @@ dependencies {
     // cuts a new published version; bump it the same way when that happens, don't
     // assume the literal version above stays current.
     //
-    // Current pin: 4.29.0 (bridge-native-pin-4-29-0-core) — bumped from 4.28.0. REQUIRED, not
+    // Current pin: 4.30.0 (bridge-native-pin-4-30-0-core) — bumped from 4.29.0. A behavior bump, not a symbol gap: the drop-in auto-close on
+    // `VIDEO_STATE_CHANGE advance_exhausted: true` (rb-*-vod-advance-exhausted-close) needs the 4.30.0
+    // core that emits it (vod-advance-skip-unplayable-android-core); the bridge forwards the param
+    // generically. Compiles against 4.29.0 too, so the compile floor stays 4.29.0.
+    //
+    // Previous pin: 4.29.0 (bridge-native-pin-4-29-0-core) — bumped from 4.28.0. REQUIRED, not
     // routine (symbol gap): LivebuyRNModule.getLanguage now reads `LivebuySDK.currentLanguage`,
     // which exists only from Android SDK 4.29.0 (i18n-language-source-android-core); against
     // 4.28.0 the bridge does not compile. Same bump also realigns Android with the iOS side,
@@ -165,7 +170,7 @@ dependencies {
     // Prior pin history: 4.19.0 (routine) → 4.21.2 (ad-hoc bump, commit a71b45e05,
     // docs(rn-flutter-release-prep), 2026-09-21) → 4.22.0 (rn-android-bridge-core-
     // pin-4-22-0, fixed `liveDurationSeconds` + intro-engine seek/pause routing) →
-    // 4.23.0 → 4.24.0 → 4.26.0 → 4.26.1 → 4.28.0 → 4.29.0 (current).
+    // 4.23.0 → 4.24.0 → 4.26.0 → 4.26.1 → 4.28.0 → 4.29.0 → 4.30.0 (current).
     //
     // ⚠️ THIS PIN WILL GO STALE AGAIN — read before bumping it (or trusting it).
     // Always re-check bridge Kotlin source against the target version's CHANGELOG for
@@ -173,7 +178,7 @@ dependencies {
     // Before the NEXT `livebuy-react-native` release (real `--yes` publish, not
     // `--dry-run`), re-verify this pin against the real remote AAR the same way this
     // fix did — do not trust mavenLocal-from-HEAD compile success as proof.
-    implementation "tv.livebuy:livebuy:4.29.0"
+    implementation "tv.livebuy:livebuy:4.30.0"
 
     // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
     // MainScope / launch). The core SDK pulls it transitively but as `implementation`,

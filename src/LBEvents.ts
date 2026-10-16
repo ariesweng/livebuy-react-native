@@ -39,7 +39,7 @@ export const LBEvents = {
   VIDEO_SHARE_REQUEST: "VIDEO_SHARE_REQUEST",
   /** 用戶點擊客服按鈕。回傳 true 由第三方接手客服系統。 */
   INFO_CUSTOMER_SERVICE: "INFO_CUSTOMER_SERVICE",
-  /** Player 狀態機轉換廣播（loading / buffering / playing / paused / ended / error）。 */
+  /** Player 狀態機轉換廣播（loading / buffering / playing / paused / ended / error）。advance_exhausted：vodEndBehavior 為 advance、播完時 next 候選全部確定播不了（not found 或沒有可播內容）時，該次 ended 帶 true（其他情況不帶此鍵），reference-ui 據此視為無下一支並關閉播放器（vod-advance-skip-unplayable-*-core）。 */
   VIDEO_STATE_CHANGE: "VIDEO_STATE_CHANGE",
   /** PollManager 每 5 秒輪詢成功回應（SDK 內部處理）後的 raw payload 廣播（第三方可自行 post-process）。 */
   POLL_RECEIVED: "POLL_RECEIVED",
@@ -79,13 +79,13 @@ export const LBEvents = {
   MINIMIZE_STATE_CHANGE: "MINIMIZE_STATE_CHANGE",
   /** 後端回應 header X-API-Deprecation=true 時派發；SDK 版本即將被退役但仍可運作。每 process lifecycle 至多 emit 一次（per api-versioning spec）。 */
   SDK_DEPRECATION_NOTICE: "SDK_DEPRECATION_NOTICE",
-  /** SDK 設定拉取或 parse 失敗時派發；payload 告知失敗來源（configure / background_refresh / refresh / cache_corrupted）與是否退回 fallback default。不去重。 */
+  /** SDK 設定拉取或 parse 失敗時派發；payload 告知失敗來源（configure / background_refresh / refresh / cache_corrupted）與是否退回 fallback default。不去重。後端回應帶頂層 error_code 時另帶選填 backend_error_code（後端原始代碼原樣字串，有值才帶；舊後端或本地錯誤時整個省略），它與既有 error_code 鍵是不同鍵，error_code 的值不變。 */
   SDK_CONFIG_LOAD_FAILED: "SDK_CONFIG_LOAD_FAILED",
   /** SDK 設定背景 refresh 或 refreshConfig() 成功且新值與舊值不同時派發。Payload `previous` / `current` 為完整 SDKConfig snapshot(object)。SDK 不主動 re-render；host 自行決定是否 reload view。 */
   SDK_CONFIG_REFRESHED: "SDK_CONFIG_REFRESHED",
   /** 用戶確認領取中獎獎品（template 於 LBWinSheet 確認後呼叫 requestAwardClaim）。回傳 true 由第三方接手領獎流程；未攔截時 SDK 送出領獎請求（SDK 內部處理，預設為真實 API 呼叫，非 no-op）。params.id 為 participant ticket id（= winner.id），非 video_id、非 award code。 */
   AWARD_CLAIM_INTENT: "AWARD_CLAIM_INTENT",
-  /** SDK 完成內建領獎請求（SDK 內部處理）後背景派發的通知，不可攔截。params 10 key 分兩類：記憶體來源 status、award_type=winner.award.type、winner_id=winner.id 恆帶，event_title=winner.title 非空才帶；API 回應來源 event_id、award_name、award_image_url、award_stock 僅成功時帶（award_code／award_expiration 限 discount；award_stock 含 0＝無庫存）。失敗（含 email 缺漏 fail-fast 未打 API）只帶記憶體來源。nil／空字串的 key 整個省略、不送空字串。status 僅 claimed（code 200）／failed（code 500，後端不區分已領取／過期／非中獎／bad-id），其他 unknown_ 前綴。SDK 不導頁、不渲染 UI；discount 型不加入購物車，product 型為明確例外——claim 成功即派本事件（不等加購）、加購成功再派 CART_ADD_REQUEST（多帶 award_winner_id）；加購失敗時 status 仍為 claimed 且不派任何事件，故 product 的 claimed 若無配對 CART_ADD_REQUEST 即代表獎品未進結帳清單。host 不應自行重複加購。 */
+  /** SDK 完成內建領獎請求（SDK 內部處理）後背景派發的通知，不可攔截。params 欄位分兩類：記憶體來源 status、award_type=winner.award.type、winner_id=winner.id 恆帶，event_title=winner.title 非空才帶；API 回應來源 event_id、award_name、award_image_url、award_stock 僅成功時帶（award_code／award_expiration 限 discount；award_stock 含 0＝無庫存）。失敗（含 email 缺漏 fail-fast 未打 API）只帶記憶體來源；失敗且後端回應帶頂層 error_code 時另帶選填 backend_error_code（後端原始代碼原樣字串，如 award_already_claimed／award_not_found／claim_failed，可據以區分失敗原因；不屬 API 回應來源欄位，舊後端或 email fail-fast 時省略）。nil／空字串的 key 整個省略、不送空字串。status 僅 claimed（code 200）／failed（code 500；整數 code 不區分已領取／過期／非中獎／bad-id，改由失敗時的 backend_error_code 區分，status 值域不變），其他 unknown_ 前綴。SDK 不導頁、不渲染 UI；discount 型不加入購物車，product 型為明確例外——claim 成功即派本事件（不等加購）、加購成功再派 CART_ADD_REQUEST（多帶 award_winner_id）；加購失敗時 status 仍為 claimed 且不派任何事件，故 product 的 claimed 若無配對 CART_ADD_REQUEST 即代表獎品未進結帳清單。host 不應自行重複加購。 */
   AWARD_CLAIM_RESULT: "AWARD_CLAIM_RESULT",
   /** SDK 從商品/活動查詢回應（SDK 內部處理）取得個人化中獎 winner（登入態才有值）時派發的通知型事件。params 帶完整 winner（id/event_id/title/award_type/award_name/award_code）。供 host/template 顯示中獎入口並接續領獎流程；沿用 winner 去重，同一 winner.id 不重複派發。 */
   WIN_RECEIVED: "WIN_RECEIVED",

@@ -1058,6 +1058,11 @@ final class LivebuyRNBridge: RCTEventEmitter {
             // 14 fields) — `channel.hot[]`/`channel.prev[]` are deliberately NOT forwarded here
             // (no consumer; EndScreen no longer uses `hot[]`).
             "next": channel.next.map { lbNavItemToBody($0) },
+            // rn-other-goods-channel-bridge-core — additive. Cross-video「更多商品」products
+            // (`channel.otherGoods`, channel-sourced), the SAME `lbProductToBody` wire shape as
+            // `products` (incl. specifications / spec_options / stock / video_id), so reference-ui
+            // can open a tapped recommendation with the REAL product.
+            "other_goods": channel.otherGoods.map { lbProductToBody($0) },
             // rn-channel-notice-bridge-core — additive. Channel announcement text, read from
             // TOP-LEVEL `channel.notice`/`channel.sysNotice` (NOT `channel.shop`). Raw passthrough,
             // not interpreted here. Reaches the host at channel-load time via this event, rather

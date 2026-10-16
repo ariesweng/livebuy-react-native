@@ -479,20 +479,34 @@ export type LBPlayerState =
   | 'startScreenPlaying'
   | 'endScreenShown';
 
+/**
+ * 後端回應頂層 `error_code` 的原始字串（`backend-error-code-rn-core`，後端錯誤代碼目錄，例如
+ * `out_of_stock` / `spec_required` / `login_required`；不認得的代碼原樣透傳）。只出現在「可能由後端回應產生」的
+ * {@link LBError} 成員上，且**有值才帶**：錯誤非來自後端回應、舊後端（不回 `error_code`），或 RN 包的原生 core
+ * 不含 backend-error-code（iOS / Android core 4.29.0 及更早；需 4.29.0 之後的下一版）時為 `undefined`。
+ *
+ * 現況：RN native bridge 尚未讀取原生 core 的新 API（iOS `LBError.backendErrorCode` / Android 對應 API），
+ * 需等 bridge 的原生 pin 升到含 backend-error-code 的版本後才會帶值；JS 端解碼已先就位（見
+ * {@link pickBackendErrorCode}）。
+ */
+export interface LBBackendErrorCodeField {
+  backendErrorCode?: string;
+}
+
 export type LBError =
   | { type: 'restricted' }
   | { type: 'videoNotFound' }
   | { type: 'invalidSignature' }
-  | { type: 'chatRateLimited' }
+  | ({ type: 'chatRateLimited' } & LBBackendErrorCodeField)
   // commentsub-checkname-contract-core §7.1: chat business errors. The native
   // bridge emits these camelCase `type` strings (consistent with the existing
   // RN convention, e.g. videoNotFound), mapped from core LBError
   // guestNameTaken (403) / chatRequiresLogin (401) / notLive (404).
-  | { type: 'guestNameTaken' }
-  | { type: 'chatRequiresLogin' }
-  | { type: 'notLive' }
+  | ({ type: 'guestNameTaken' } & LBBackendErrorCodeField)
+  | ({ type: 'chatRequiresLogin' } & LBBackendErrorCodeField)
+  | ({ type: 'notLive' } & LBBackendErrorCodeField)
   | { type: 'networkError'; message: string }
-  | { type: 'serverError'; code: number; message: string }
+  | ({ type: 'serverError'; code: number; message: string } & LBBackendErrorCodeField)
   /**
    * Add-to-cart 30s 防重複建單 dedupe 命中（cart-add-tier2-unify）：同
    * `(goodsId, videoId)` 30 秒內已加購過，`addToCart` MUST NOT 重打 addcart。host /
@@ -504,7 +518,20 @@ export type LBError =
    * Backend inner code 426 — this SDK version is no longer accepted.
    * Raised per-API-call (no dedup); see `shared/error-codes.md`.
    */
-  | { type: 'sdk_version_unsupported' };
+  | ({ type: 'sdk_version_unsupported' } & LBBackendErrorCodeField);
+
+/**
+ * 從 native bridge 的 Promise reject 物件取出後端原始 `error_code`（`backend-error-code-rn-core`）。
+ * 讀 `raw.userInfo.backendErrorCode`（RN 把 reject 的 userInfo 掛在 JS error 的 `userInfo`）；只在值為
+ * **非空字串**時回傳，缺鍵、`null`、非字串、空字串一律回 `undefined`。純函式，無副作用。
+ */
+export function pickBackendErrorCode(raw: unknown): string | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const userInfo = (raw as { userInfo?: unknown }).userInfo;
+  if (userInfo === null || typeof userInfo !== 'object') return undefined;
+  const value = (userInfo as { backendErrorCode?: unknown }).backendErrorCode;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
 
 // MARK: - fetchLatestLive types
 
@@ -802,6 +829,14 @@ export interface LBPlayerChannelInfo {
    */
   next: LBNavItem[];
   /**
+   * Cross-video「更多商品」products (`channel.other_goods[]`, wire key `other_goods`) —
+   * rn-other-goods-channel-bridge-core. Channel-sourced (load-time), full `LBProduct`
+   * shape (specifications / specOptions / stock / videoId), the SAME product wire shape as
+   * {@link products}. Lets reference-ui open a tapped recommendation with the REAL product
+   * (parity iOS / Android / Flutter). `[]` when absent.
+   */
+  otherGoods: LBProduct[];
+  /**
    * Channel announcement text (`channel.notice`, wire key `notice`). `""` when
    * absent. A top-level `LBChannel` field (NOT nested under `channel.shop`). Raw
    * passthrough — the SDK does not interpret or render this text; feeds a
@@ -860,6 +895,8 @@ export interface LBPlayerChannelInfo {
  *     `shop_name` missing/mistyped → `""`; `title` missing/mistyped → `null` (NOT
  *     `""` — preserves the native `String?` optional semantics); `duration`
  *     missing/mistyped/non-finite → `0`. See {@link mapNavItem}.
+ *   - `other_goods`: missing / null / non-Array → `[]` (rn-other-goods-channel-bridge-core;
+ *     same top-level-only guard as `products`).
  */
 export function mapPlayerChannelInfo(wire: {
   publish_at?: string | null;
@@ -882,6 +919,7 @@ export function mapPlayerChannelInfo(wire: {
   viewer_count?: number | string | null;
   live_duration_seconds?: number | string | null;
   next?: unknown;
+  other_goods?: LBProduct[] | null;
   notice?: string | null;
   sys_notice?: string | null;
 }): LBPlayerChannelInfo {
@@ -906,6 +944,7 @@ export function mapPlayerChannelInfo(wire: {
     viewerCount: coerceViewerCount(wire.viewer_count),
     liveDurationSeconds: coerceLiveDurationSeconds(wire.live_duration_seconds),
     next: mapNavItems(wire.next),
+    otherGoods: Array.isArray(wire.other_goods) ? wire.other_goods : [],
     notice: wire.notice ?? '',
     sysNotice: wire.sys_notice ?? '',
   };
@@ -1962,6 +2001,10 @@ const LivebuySDK = {
    *「已加入購物車」). An empty-`buy_no` popup-login boundary rejects with serverError
    * code `401` → `{ type: 'serverError', code: 401 }` (needs-login). Other numeric
    * codes map to `serverError`; non-numeric rejections keep their raw shape.
+   * backend-error-code-rn-core: a numeric-code rejection whose `userInfo.backendErrorCode` is a
+   * non-empty string also carries `backendErrorCode` (e.g. `out_of_stock` / `spec_required` /
+   * `goods_unavailable`); absent otherwise — including until the bridge's native pin includes
+   * backend-error-code (iOS / Android core after 4.29.0).
    */
   addToCart(options: LBAddToCartOptions): Promise<LBAddToCartResult> {
     return LivebuyRNBridge.addToCart(options).catch((e: unknown) => {
@@ -1981,6 +2024,10 @@ const LivebuySDK = {
           code,
           message: raw?.message ?? '',
         };
+        // backend-error-code-rn-core: keep the backend's raw error_code only when the bridge
+        // attached a non-empty string (userInfo.backendErrorCode); otherwise omit the key.
+        const backendErrorCode = pickBackendErrorCode(e);
+        if (backendErrorCode !== undefined) typed.backendErrorCode = backendErrorCode;
         throw typed;
       }
       throw e;
