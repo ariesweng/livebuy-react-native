@@ -721,8 +721,9 @@ const REPLAY_CHAT_COMPOSE_STRING_KEYS = [
 // chat-raw-compose-rn-core — forward the optional chat-compose keys (`is_anonymous` / `host_name` /
 // `reply_template` + native-core `composed_*`) when the wire row carries them with the right type;
 // absent / wrong-typed → key omitted (never `''`, so `row.composed_text ?? row.text` keeps working).
-// The native bridge's hand-built `LBReplayChatRevealed` payload does not send these yet (pending the
-// bridge's native-core pin bump); this only keeps the JS decode from dropping them once it does.
+// The native bridge sends them on `LBReplayChatRevealed` from RN core 2.12.1
+// (rn-bridge-forward-backend-error-code-and-replay-raw-core; 2.12.0 and earlier do not), with the
+// same keys / omit rules as the core's `CHAT_HISTORY_LOADED` comments.
 export function pickReplayChatComposeKeys(
   r: Record<string, unknown> | null | undefined,
 ): Partial<LBReplayChatComment> {

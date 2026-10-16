@@ -218,9 +218,9 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 )
                 promise.resolve(null)
             } catch (e: LBError.NotConfigured) {
-                promise.reject("NOT_CONFIGURED", "HMAC / apiKey rejected by server", e)
+                promise.rejectWithBackendCode("NOT_CONFIGURED", "HMAC / apiKey rejected by server", e)
             } catch (t: Throwable) {
-                promise.reject("CONFIGURE_ERROR", t.message ?: "configure failed", t)
+                promise.rejectWithBackendCode("CONFIGURE_ERROR", t.message ?: "configure failed", t)
             }
         }
     }
@@ -232,7 +232,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         try {
             promise.resolve(serializeSdkConfig(LivebuySDK.sdkConfig))
         } catch (e: LBError.NotConfigured) {
-            promise.reject("NOT_CONFIGURED", "configure() not yet called", e)
+            promise.rejectWithBackendCode("NOT_CONFIGURED", "configure() not yet called", e)
         }
     }
 
@@ -243,9 +243,9 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 LivebuySDK.refreshConfig()
                 promise.resolve(null)
             } catch (e: LBError.NotConfigured) {
-                promise.reject("NOT_CONFIGURED", "configure() not yet called", e)
+                promise.rejectWithBackendCode("NOT_CONFIGURED", "configure() not yet called", e)
             } catch (t: Throwable) {
-                promise.reject("REFRESH_ERROR", t.message ?: "refresh failed", t)
+                promise.rejectWithBackendCode("REFRESH_ERROR", t.message ?: "refresh failed", t)
             }
         }
     }
@@ -570,7 +570,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                     view.setGuestNicknameVerified(name)
                     promise.resolve(null)
                 } catch (e: LBError.GuestNameTaken) {
-                    promise.reject(
+                    promise.rejectWithBackendCode(
                         GuestNicknameVerifiedBridge.rejectCode(
                             GuestNicknameVerifiedBridge.Failure.TAKEN
                         ),
@@ -579,7 +579,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                     )
                 } catch (e: LBError.NicknameSetPreconditionFailed) {
                     // guest-nickname-verified-fails-loudly-android supplies this case.
-                    promise.reject(
+                    promise.rejectWithBackendCode(
                         GuestNicknameVerifiedBridge.rejectCode(
                             GuestNicknameVerifiedBridge.Failure.PRECONDITION_FAILED
                         ),
@@ -588,7 +588,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                         e
                     )
                 } catch (e: LBError.NotConfigured) {
-                    promise.reject(
+                    promise.rejectWithBackendCode(
                         GuestNicknameVerifiedBridge.rejectCode(
                             GuestNicknameVerifiedBridge.Failure.NOT_CONFIGURED
                         ),
@@ -596,7 +596,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                         e
                     )
                 } catch (t: Throwable) {
-                    promise.reject(
+                    promise.rejectWithBackendCode(
                         GuestNicknameVerifiedBridge.rejectCode(
                             GuestNicknameVerifiedBridge.Failure.GENERIC
                         ),
@@ -661,7 +661,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 }
                 promise.resolve(map)
             } catch (t: Throwable) {
-                promise.reject("FLUSH_ERROR", t.message ?: "flush failed", t)
+                promise.rejectWithBackendCode("FLUSH_ERROR", t.message ?: "flush failed", t)
             }
         }
     }
@@ -680,9 +680,9 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                     promise.resolve(null)
                 }
             } catch (e: IllegalStateException) {
-                promise.reject("NOT_CONFIGURED", "configure() not yet called", e)
+                promise.rejectWithBackendCode("NOT_CONFIGURED", "configure() not yet called", e)
             } catch (t: Throwable) {
-                promise.reject("FETCH_LATEST_LIVE_ERROR", t.message ?: "fetchLatestLive failed", t)
+                promise.rejectWithBackendCode("FETCH_LATEST_LIVE_ERROR", t.message ?: "fetchLatestLive failed", t)
             }
         }
     }
@@ -732,9 +732,9 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 }
                 promise.resolve(map)
             } catch (e: IllegalStateException) {
-                promise.reject("NOT_CONFIGURED", "configure() not yet called", e)
+                promise.rejectWithBackendCode("NOT_CONFIGURED", "configure() not yet called", e)
             } catch (t: Throwable) {
-                promise.reject("FETCH_WIDGET_ERROR", t.message ?: "fetchWidget failed", t)
+                promise.rejectWithBackendCode("FETCH_WIDGET_ERROR", t.message ?: "fetchWidget failed", t)
             }
         }
     }
@@ -782,7 +782,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 LivebuySDK.login(memberId, memberName)
                 promise.resolve(null)
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "login failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "login failed", t)
             }
         }
     }
@@ -796,7 +796,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 LivebuySDK.bindSession(memberId, memberName, avatarUrl)
                 promise.resolve(null)
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "bindSession failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "bindSession failed", t)
             }
         }
     }
@@ -875,14 +875,14 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 // cart-add-tier2-unify: a 30s 重複加購 dedupe-hit → reject code
                 // `cart_add_deduplicated` so JS maps the typed `{ type: 'cartAddDeduplicated' }`
                 // (host treats it as「已加入購物車」, not a failure).
-                promise.reject("cart_add_deduplicated", "Add-to-cart deduplicated (already added within 30 s).", e)
+                promise.rejectWithBackendCode("cart_add_deduplicated", "Add-to-cart deduplicated (already added within 30 s).", e)
             } catch (e: LBError.ServerError) {
                 // Convey the inner serverError code (e.g. 401 raised for an empty buy_no) as the
                 // reject code so the JS `LivebuySDK.addToCart` can surface the typed LBError and
                 // branch needs-login (401) vs a genuine failure (cart-needs-login-vs-failure).
-                promise.reject(e.code.toString(), e.message ?: "addToCart failed", e)
+                promise.rejectWithBackendCode(e.code.toString(), e.message ?: "addToCart failed", e)
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "addToCart failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "addToCart failed", t)
             }
         }
     }
@@ -896,7 +896,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 LivebuySDK.reportCartTrack(shopId = shopId, buyNo = buyNo, trackId = trackId)
                 promise.resolve(null)
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "reportCartTrack failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "reportCartTrack failed", t)
             }
         }
     }
@@ -910,7 +910,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             try {
                 promise.resolve(LivebuySDK.retryPendingAction(token))
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "retryPendingAction failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "retryPendingAction failed", t)
             }
         }
     }
@@ -922,7 +922,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 LivebuySDK.discardPendingAction(token)
                 promise.resolve(null)
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "discardPendingAction failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "discardPendingAction failed", t)
             }
         }
     }
@@ -943,7 +943,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 )
                 promise.resolve(handled)
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "dispatchAuthRequired failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "dispatchAuthRequired failed", t)
             }
         }
     }
@@ -957,7 +957,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 LivebuySDK.setAwaitGoods(goodsGpn, enabled)
                 promise.resolve(null)
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "setAwaitGoods failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "setAwaitGoods failed", t)
             }
         }
     }
@@ -969,7 +969,7 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 LivebuySDK.setNoticeGoods(goodsGpn, enabled)
                 promise.resolve(null)
             } catch (t: Throwable) {
-                promise.reject("LB_ERROR", t.message ?: "setNoticeGoods failed", t)
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "setNoticeGoods failed", t)
             }
         }
     }
@@ -1279,20 +1279,38 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
     // currently-revealed prefix ascending by `LBComment.time`. Wire keys mirror the SAME
     // `text`/`name`/`color`/`reply`/`reply_color`/`time` shape `CHAT_HISTORY_LOADED` already uses,
     // so RN JS's existing `decodeReplayChatComments` (react-native-ui) needs no changes.
+    // rn-bridge-forward-backend-error-code-and-replay-raw-core: each row now also carries the
+    // core's chat-compose keys (`is_anonymous` / `host_name` / `reply_template` when non-null,
+    // `composed_text` / `composed_name` / `composed_reply` always) — same keys and omit rules as
+    // the core's `CHAT_HISTORY_LOADED` comments; built by the pure [ReplayChatCommentWire.row].
     private fun commentsArray(comments: List<LBComment>): WritableNativeArray =
         WritableNativeArray().apply {
-            comments.forEach { c ->
-                pushMap(WritableNativeMap().apply {
-                    putString("text", c.text)
-                    putString("name", c.name)
-                    putString("color", c.color)
-                    putString("reply", c.reply)
-                    putString("reply_color", c.replyColor)
-                    putString("time", c.time)
-                    putString("kind", c.kind.rawValue)
-                })
+            comments.forEach { c -> pushMap(flatWritableMap(ReplayChatCommentWire.row(c))) }
+        }
+
+    /** Flat `Map` (String / Boolean / Number values only) → `WritableNativeMap`. */
+    private fun flatWritableMap(entries: Map<String, Any>): WritableNativeMap =
+        WritableNativeMap().apply {
+            entries.forEach { (key, value) ->
+                when (value) {
+                    is String -> putString(key, value)
+                    is Boolean -> putBoolean(key, value)
+                    is Int -> putInt(key, value)
+                    is Number -> putDouble(key, value.toDouble())
+                }
             }
         }
+
+    /**
+     * rn-bridge-forward-backend-error-code-and-replay-raw-core — `promise.reject` that also puts the
+     * core's raw backend `error_code` into the reject `userInfo` as `backendErrorCode` (read by JS
+     * `pickBackendErrorCode`), only when the caught throwable is an `LBError` with a non-empty
+     * `backendErrorCode` (read here, at catch time). No code → the plain 3-arg reject, unchanged.
+     */
+    private fun Promise.rejectWithBackendCode(code: String, message: String, t: Throwable) {
+        val info = BackendErrorCodeWire.rejectUserInfo((t as? LBError)?.backendErrorCode)
+        if (info == null) reject(code, message, t) else reject(code, message, t, flatWritableMap(info))
+    }
 
     fun emitReplayChatRevealed(comments: List<LBComment>) {
         val map = WritableNativeMap().apply {
@@ -1338,6 +1356,11 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 map.putInt("code", -1)
                 map.putString("message", "unknown error")
             }
+        }
+        // rn-bridge-forward-backend-error-code-and-replay-raw-core: the raw backend `error_code`
+        // as `backendErrorCode` (the TS `LBError` field), only when non-empty; omitted otherwise.
+        BackendErrorCodeWire.nonEmpty(error.backendErrorCode)?.let {
+            map.putString(BackendErrorCodeWire.KEY, it)
         }
         emit("LBError", map)
     }

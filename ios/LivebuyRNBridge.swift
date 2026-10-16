@@ -130,7 +130,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
             } catch LBSDKError.notConfigured {
                 reject("NOT_CONFIGURED", "HMAC / apiKey rejected by server", nil)
             } catch {
-                reject("CONFIGURE_ERROR", error.localizedDescription, error)
+                reject("CONFIGURE_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -323,7 +323,10 @@ final class LivebuyRNBridge: RCTEventEmitter {
                     try await view.setGuestNicknameVerified(name)
                     resolve(nil)
                 } catch LBError.guestNameTaken {
-                    reject("guestNameTaken", "Nickname is already taken", nil)
+                    // rn-bridge-forward-backend-error-code-and-replay-raw-core: the code is keyed by
+                    // the error value, so reading it off `.guestNameTaken` here is the caught error's code.
+                    reject("guestNameTaken", "Nickname is already taken",
+                           Self.rejectionError(nil, backendErrorCode: LBError.guestNameTaken.backendErrorCode))
                 } catch LBError.nicknameSetPreconditionFailed {
                     reject("nicknameSetPreconditionFailed",
                            "setGuestNicknameVerified: a precondition was not met (blank name, or no video loaded yet) — checkName was never sent.",
@@ -331,7 +334,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 } catch LBSDKError.notConfigured {
                     reject("NOT_CONFIGURED", "configure() not yet called", nil)
                 } catch {
-                    reject("LB_ERROR", error.localizedDescription, error)
+                    reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
                 }
             }
         }
@@ -366,7 +369,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
         } catch LBSDKError.notConfigured {
             reject("NOT_CONFIGURED", "configure() not yet called", nil)
         } catch {
-            reject("GET_CONFIG_ERROR", error.localizedDescription, error)
+            reject("GET_CONFIG_ERROR", error.localizedDescription, Self.rejectionError(error))
         }
     }
 
@@ -381,7 +384,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
             } catch LBSDKError.notConfigured {
                 reject("NOT_CONFIGURED", "configure() not yet called", nil)
             } catch {
-                reject("REFRESH_ERROR", error.localizedDescription, error)
+                reject("REFRESH_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -485,7 +488,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
                     "elapsedMs": result.elapsedMs,
                 ])
             } catch {
-                reject("FLUSH_ERROR", error.localizedDescription, error)
+                reject("FLUSH_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -508,7 +511,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
             } catch LBSDKError.notConfigured {
                 reject("NOT_CONFIGURED", "configure() not yet called", nil)
             } catch {
-                reject("FETCH_LATEST_LIVE_ERROR", error.localizedDescription, error)
+                reject("FETCH_LATEST_LIVE_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -551,7 +554,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
             } catch LBSDKError.notConfigured {
                 reject("NOT_CONFIGURED", "configure() not yet called", nil)
             } catch {
-                reject("FETCH_WIDGET_ERROR", error.localizedDescription, error)
+                reject("FETCH_WIDGET_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -613,7 +616,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 try await Livebuy.login(memberId: memberId, memberName: memberName)
                 resolve(nil)
             } catch {
-                reject("LB_ERROR", error.localizedDescription, error)
+                reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -631,7 +634,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
                     memberId: memberId, memberName: memberName, avatarUrl: avatarUrl)
                 resolve(nil)
             } catch {
-                reject("LB_ERROR", error.localizedDescription, error)
+                reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -694,14 +697,14 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 // (host treats it as「已加入購物車」). serverError code (e.g. 401 for an empty
                 // buy_no) → reject with that code so JS branches needs-login vs failure.
                 if case .cartAddDeduplicated = lbError {
-                    reject("cart_add_deduplicated", "Add-to-cart deduplicated (already added within 30 s).", lbError)
+                    reject("cart_add_deduplicated", "Add-to-cart deduplicated (already added within 30 s).", Self.rejectionError(lbError))
                 } else if case .serverError(let code, let message) = lbError {
-                    reject(String(code), message, lbError)
+                    reject(String(code), message, Self.rejectionError(lbError))
                 } else {
-                    reject("LB_ERROR", lbError.localizedDescription, lbError)
+                    reject("LB_ERROR", lbError.localizedDescription, Self.rejectionError(lbError))
                 }
             } catch {
-                reject("LB_ERROR", error.localizedDescription, error)
+                reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -720,7 +723,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 try await Livebuy.reportCartTrack(shopId: shopId, buyNo: buyNo, trackId: trackId)
                 resolve(nil)
             } catch {
-                reject("LB_ERROR", error.localizedDescription, error)
+                reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -780,7 +783,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 try await Livebuy.setAwaitGoods(goodsGpn: goodsGpn, enabled: enabled)
                 resolve(nil)
             } catch {
-                reject("LB_ERROR", error.localizedDescription, error)
+                reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -795,7 +798,7 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 try await Livebuy.setNoticeGoods(goodsGpn: goodsGpn, enabled: enabled)
                 resolve(nil)
             } catch {
-                reject("LB_ERROR", error.localizedDescription, error)
+                reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
             }
         }
     }
@@ -1122,15 +1125,13 @@ final class LivebuyRNBridge: RCTEventEmitter {
     // `replayHistoryEventComments(from:)` (`LivebuyPlayerViewController.swift`) — the SAME
     // `text`/`name`/`color`/`reply`/`reply_color`/`time` shape `CHAT_HISTORY_LOADED` already uses,
     // so RN JS's existing `decodeReplayChatComments` (react-native-ui) needs no changes.
+    // rn-bridge-forward-backend-error-code-and-replay-raw-core: each row now also carries the core's
+    // chat-compose keys (`is_anonymous` / `host_name` / `reply_template` when non-nil, `composed_*`
+    // always) — same keys / omit rules as `CHAT_HISTORY_LOADED`; see `replayChatCommentRow` in
+    // LivebuyRNBridgeWire.swift.
     func emitReplayChatRevealed(_ comments: [LBComment]) {
         sendEvent(withName: "LBReplayChatRevealed", body: [
-            "comments": comments.map {
-                [
-                    "text": $0.text, "name": $0.name, "color": $0.color,
-                    "reply": $0.reply, "reply_color": $0.replyColor,
-                    "time": $0.time, "kind": $0.kind.rawValue,
-                ]
-            },
+            "comments": comments.map { Self.replayChatCommentRow($0) },
         ])
     }
 
@@ -1162,7 +1163,10 @@ final class LivebuyRNBridge: RCTEventEmitter {
             // Future-proof: core LBError is a non-frozen public enum.
             body = ["type": "serverError", "code": -1, "message": "unknown error"]
         }
-        sendEvent(withName: "LBError", body: body)
+        // rn-bridge-forward-backend-error-code-and-replay-raw-core: raw backend `error_code` as
+        // `backendErrorCode` (the TS `LBError` field), only when non-empty.
+        sendEvent(withName: "LBError",
+                  body: Self.errorEventBody(body, backendErrorCode: error.backendErrorCode))
     }
 
     fileprivate func emitSdkEvent(_ body: [String: Any]) {

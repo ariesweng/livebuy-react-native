@@ -446,7 +446,7 @@ export interface LBPollReceivedParams {
  * chat-raw-compose-rn-core：另可帶組字原始欄位 `is_anonymous` / `host_name` / `reply_template`（有值
  * 才帶）與原生 core 組好的 `composed_text` / `composed_name` / `composed_reply`（需含 chat-raw-compose
  * 的原生 core 版本；缺時請退回 `text` / `name` / `reply`）。`onReplayChatRevealed` 的漸進揭露通道由 RN
- * native bridge 手寫 payload，目前尚未帶這些鍵（待 bridge 的原生 core pin 升版時補上）。
+ * native bridge 自行序列化，RN core 2.12.1 起也帶這些鍵（鍵名與省略規則同 `CHAT_HISTORY_LOADED`；2.12.0 及更早不帶）。
  */
 export interface LBReplayChatComment
   extends Pick<LBChatRawWireFields, 'is_anonymous' | 'host_name' | 'reply_template'>,

@@ -482,12 +482,13 @@ export type LBPlayerState =
 /**
  * 後端回應頂層 `error_code` 的原始字串（`backend-error-code-rn-core`，後端錯誤代碼目錄，例如
  * `out_of_stock` / `spec_required` / `login_required`；不認得的代碼原樣透傳）。只出現在「可能由後端回應產生」的
- * {@link LBError} 成員上，且**有值才帶**：錯誤非來自後端回應、舊後端（不回 `error_code`），或 RN 包的原生 core
- * 不含 backend-error-code（iOS / Android core 4.29.0 及更早；需 4.29.0 之後的下一版）時為 `undefined`。
+ * {@link LBError} 成員上，且**有值才帶**：錯誤非來自後端回應、舊後端（不回 `error_code`），或 RN core 2.12.0 及更早
+ * （bridge 原生碼尚未轉送）時為 `undefined`。
  *
- * 現況：RN native bridge 尚未讀取原生 core 的新 API（iOS `LBError.backendErrorCode` / Android 對應 API），
- * 需等 bridge 的原生 pin 升到含 backend-error-code 的版本後才會帶值；JS 端解碼已先就位（見
- * {@link pickBackendErrorCode}）。
+ * 來源（`rn-bridge-forward-backend-error-code-and-replay-raw-core`，RN core 2.12.1 起）：native bridge 在 catch 當下
+ * 讀原生 core 的 `LBError.backendErrorCode`（iOS / Android 4.30.0），非空才轉送——Promise reject 放在
+ * `userInfo.backendErrorCode`（見 {@link pickBackendErrorCode}），`onError`（`LBError` 事件）放在事件物件頂層的
+ * `backendErrorCode`。
  */
 export interface LBBackendErrorCodeField {
   backendErrorCode?: string;
@@ -2003,8 +2004,8 @@ const LivebuySDK = {
    * codes map to `serverError`; non-numeric rejections keep their raw shape.
    * backend-error-code-rn-core: a numeric-code rejection whose `userInfo.backendErrorCode` is a
    * non-empty string also carries `backendErrorCode` (e.g. `out_of_stock` / `spec_required` /
-   * `goods_unavailable`); absent otherwise — including until the bridge's native pin includes
-   * backend-error-code (iOS / Android core after 4.29.0).
+   * `goods_unavailable`); absent otherwise. The native bridge attaches it from RN core 2.12.1
+   * (rn-bridge-forward-backend-error-code-and-replay-raw-core); RN core 2.12.0 and earlier never do.
    */
   addToCart(options: LBAddToCartOptions): Promise<LBAddToCartResult> {
     return LivebuyRNBridge.addToCart(options).catch((e: unknown) => {

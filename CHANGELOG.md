@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.12.1] - 2026-10-16
+
+> **core，patch，無 BREAKING。** 只改 bridge 原生碼，公開 API 不變，原生依賴維持 iOS／Android `4.30.0`。後端（`error_code`／
+> `sdk-i18n-raw-data`）已於 2026-10-16 上線。同步發 `livebuy-react-native-ui` `1.15.1`（純 metadata，peer 對齊）；
+> `livebuy-react-native-reference-ui` 維持 `1.16.0`（peer `^1.15.0` 已涵蓋 `1.15.1`）。
+>
+> **驗證範圍**：`npm run typecheck`、`npx jest`、Android 原生單元測試通過；bridge 原生碼已對已發佈 `4.30.0` 編譯（iOS／Android）。
+> iOS 原生端無單元測試、未經真機。
+
+### Fixed
+
+- 錯誤物件帶後端原始代碼（`rn-bridge-forward-backend-error-code-and-replay-raw-core`）：bridge 原生碼現在會讀原生 core 的
+  `LBError.backendErrorCode`。`addToCart` 等 Promise reject 放在 `userInfo.backendErrorCode`（`addToCart` 拋出的 `serverError` 因此會有
+  `backendErrorCode`），`onError` 收到的錯誤物件頂層也會有 `backendErrorCode`。只在後端有回代碼時才帶，沒有時與以前完全相同。
+- 回放漸進揭露留言（`onReplayChatRevealed`）補上組字欄位：每筆留言另帶 `is_anonymous` / `host_name` / `reply_template`（有值才帶）與
+  `composed_text` / `composed_name` / `composed_reply`，鍵名與規則同 `CHAT_HISTORY_LOADED`。之前這條通道只有舊欄位。
+
 ## [2.12.0] - 2026-10-16
 
 > **core，minor，無 BREAKING 公開符號、但含經原生 core 繼承的行為改變（見下方 ⚠️）。** 原生依賴升到 iOS／Android **`4.30.0`**
