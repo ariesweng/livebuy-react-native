@@ -6,7 +6,11 @@
 
 @interface RCT_EXTERN_MODULE(LivebuyRNBridge, RCTEventEmitter)
 
-RCT_EXTERN_METHOD(configure:(nonnull NSNumber *)apiKey
+// rn-ios-bridge-arg-types-core: `apiKey` is a string end to end — JS `configure()` sends
+// `String(options.apiKey)` (TS `apiKey: string`), Android takes `apiKey: String`. Declaring it
+// `NSNumber *` here made RN's argument conversion fail ("JSON value ... of type NSString cannot be
+// converted to NSNumber") and the key never reached the SDK intact.
+RCT_EXTERN_METHOD(configure:(nonnull NSString *)apiKey
                   secret:(NSString *)secret
                   shopId:(NSString *)shopId
                   lang:(nullable NSString *)lang
@@ -218,11 +222,17 @@ RCT_EXTERN_METHOD(simulateTap:(nonnull NSNumber *)reactTag)
 
 // rn-player-load-initial-seek-core: `startAt` is a FIXED second positional
 // arg (RCT_EXTERN_METHOD has no default-parameter equivalent) — the JS side
-// (`LivebuyPlayer.tsx`) always sends 2 positional args, `NSNull` when there is
+// (`LivebuyPlayer.tsx`) always sends 2 positional args, `null` when there is
 // no initial-seek value.
+// rn-ios-bridge-arg-types-core: React Native rejects any `NSNumber *` argument
+// that is not `nonnull` ("... is marked as nullable but React requires that all
+// NSNumber arguments are explicitly marked as `nonnull`" — debug red box, the
+// command never runs). An optional number is therefore declared `id` and
+// unwrapped on the Swift side (`LivebuyRNBridge.optionalNumberArg`: NSNumber →
+// value, NSNull / nil → nil). Same rule for every optional number below.
 RCT_EXTERN_METHOD(load:(nonnull NSNumber *)reactTag
                   videoId:(NSString *)videoId
-                  startAt:(nullable NSNumber *)startAt)
+                  startAt:(id)startAt)
 
 // Legacy command name preserved as alias for backward compat.
 RCT_EXTERN_METHOD(release:(nonnull NSNumber *)reactTag)
@@ -247,7 +257,7 @@ RCT_EXTERN_METHOD(seekBy:(nonnull NSNumber *)reactTag
 
 RCT_EXTERN_METHOD(sendChat:(nonnull NSNumber *)reactTag
                   message:(NSString *)message
-                  eventId:(nullable NSNumber *)eventId)
+                  eventId:(id)eventId)
 
 // MARK: - New commands per spec §Player Public methods
 
@@ -260,7 +270,7 @@ RCT_EXTERN_METHOD(requestViewCart:(nonnull NSNumber *)reactTag
                   productId:(nullable NSString *)productId)
 RCT_EXTERN_METHOD(reportEventStay:(nonnull NSNumber *)reactTag
                   eventId:(nonnull NSNumber *)eventId
-                  stayTime:(nullable NSNumber *)stayTime)
+                  stayTime:(id)stayTime)
 RCT_EXTERN_METHOD(requestAwardClaim:(nonnull NSNumber *)reactTag
                   winner:(NSDictionary *)winner
                   contact:(nullable NSDictionary *)contact)
@@ -272,7 +282,7 @@ RCT_EXTERN_METHOD(expand:(nonnull NSNumber *)reactTag)
 // ChatView
 RCT_EXTERN_METHOD(chatView_simulateSendTap:(nonnull NSNumber *)reactTag
                   text:(NSString *)text
-                  eventId:(nullable NSNumber *)eventId)
+                  eventId:(id)eventId)
 RCT_EXTERN_METHOD(chatView_simulateLoadHistoryTap:(nonnull NSNumber *)reactTag)
 RCT_EXTERN_METHOD(chatView_simulateEventJoinTap:(nonnull NSNumber *)reactTag
                   eid:(nonnull NSNumber *)eid

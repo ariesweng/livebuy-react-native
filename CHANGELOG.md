@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.12.2] - 2026-10-16
+
+> **core，patch，無 BREAKING。** 只改 iOS bridge 原生碼與 JS 送 command 的參數數量，公開 API 不變，原生依賴維持 iOS／Android `4.30.0`。
+> 同步發 `livebuy-react-native-ui` `1.15.2`（純 metadata，peer 對齊）；`livebuy-react-native-reference-ui` 維持 `1.16.0`
+> （peer `^1.15.0` 已涵蓋 `1.15.2`）。
+>
+> **驗證範圍**：`npm run typecheck`、`npx jest` 通過；iOS bridge 原生碼已對已發佈 `4.30.0` 編譯（`livebuy-react-native` scheme）。
+> iOS 原生端無單元測試、未經真機。
+
+### Fixed
+
+- iOS bridge 參數型別與 JS 送出的值對齊（`rn-ios-bridge-arg-types-core`，只改 iOS 原生 bridge，公開 API 不變）：
+  - `configure` 的 `apiKey`：原生宣告由數字改為字串。之前 JS 送字串、原生要數字，RN 轉換失敗，`apiKey` 進不了 SDK，之後的 API 呼叫全部失敗。
+  - 可選數字參數（`load` 的 `startAt`、`sendChat` / `chatView.simulateSendTap` 的 `eventId`、`reportEventStay` 的 `stayTime`）：
+    原生宣告由「可為空的數字」改為不限型別再自行解包。RN 規定數字參數不可宣告為可為空，debug 版會紅屏、該指令不執行
+    （`load` 因此播放器永遠不載入）。
+  - 之前用 patch-package 繞過這兩個問題的 host，升級後可移除該補丁。
+- 播放器指令一律送滿參數（`rn-player-command-fixed-arity-core`，只改 JS，公開 API 不變）：`sendChat`、`chatView.simulateSendTap`
+  （沒有 `eventId`）、`reportEventStay`（沒有 `stayTime`）、`requestViewCart`（沒有 `productId`）、`requestAwardClaim`（沒有 `contact`）、
+  `productListPanel.simulateAddCart`（沒有 `spec`）在可選參數缺席時少送一個參數。iOS 原生指令的參數數量是固定的，debug 版會報
+  「was called with N arguments but expects M arguments」且不執行（release 不檢查）。現在缺席的位置一律送 `null`，與 `load` 相同；
+  Android 原本就把該位置的 `null` 視為沒有這個參數，行為不變。
+
 ## [2.12.1] - 2026-10-16
 
 > **core，patch，無 BREAKING。** 只改 bridge 原生碼，公開 API 不變，原生依賴維持 iOS／Android `4.30.0`。後端（`error_code`／

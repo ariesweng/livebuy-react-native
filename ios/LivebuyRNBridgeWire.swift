@@ -71,3 +71,18 @@ extension LivebuyRNBridge {
                              composedReply: c.composedReply)
     }
 }
+
+// rn-ios-bridge-arg-types-core — optional number arguments.
+//
+// React Native rejects a `nullable NSNumber *` method argument (debug red box: "... is marked as
+// nullable but React requires that all NSNumber arguments are explicitly marked as `nonnull`"), so
+// an optional number (`load` startAt, `sendChat` / `chatView_simulateSendTap` eventId,
+// `reportEventStay` stayTime) is declared `id` in `LivebuyRNBridge.m` and arrives as `Any?`.
+extension LivebuyRNBridge {
+
+    /// The number JS sent, or nil when it sent `null` (arrives as `NSNull`), nothing, or a
+    /// non-number value.
+    static func optionalNumberArg(_ raw: Any?) -> NSNumber? {
+        raw as? NSNumber
+    }
+}

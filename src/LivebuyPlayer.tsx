@@ -836,6 +836,33 @@ export function toLoadDispatchArgs(arg: LoadDispatchArg): unknown[] {
   return [arg.videoId, arg.startAt ?? null];
 }
 
+/**
+ * rn-player-command-fixed-arity-core — wire args for every `LivebuyPlayerView`
+ * command that has an OPTIONAL trailing argument. Same rule as
+ * {@link toLoadDispatchArgs}: iOS `RCT_EXTERN_METHOD` is fixed arity (the RN
+ * debug build checks the count on every call — "was called with N arguments
+ * but expects M arguments" — and skips the call), so JS always sends every
+ * position and puts `null` where the optional value is absent. Never drop a
+ * position: a shorter array is what the debug build rejects.
+ *
+ * Receiving side, for reference: iOS turns `null` into `nil` (`id` →
+ * `optionalNumberArg`, `nullable NSString *` / `nullable NSDictionary *`);
+ * Android checks the slot (`isNull` / `getType == Number`) before reading.
+ *
+ * Exported for testing — `RNPlayerCommandFixedArity.test.ts` checks each
+ * builder's length against the `.m` declaration.
+ */
+export const playerCommandArgs = {
+  sendChat: (message: string, eventId?: number): unknown[] => [message, eventId ?? null],
+  requestViewCart: (productId?: string): unknown[] => [productId ?? null],
+  reportEventStay: (eventId: number, stayTime?: number): unknown[] => [eventId, stayTime ?? null],
+  requestAwardClaim: (winner: LBWinner, contact?: LBAwardClaimInput): unknown[] =>
+    [winner, contact ?? null],
+  chatView_simulateSendTap: (text: string, eventId?: number): unknown[] => [text, eventId ?? null],
+  productListPanel_simulateAddCart: (product: LBProduct, spec?: LBBridgeSpec): unknown[] =>
+    [product, spec ?? null],
+};
+
 const NATIVE_VIEW = 'LivebuyPlayerView';
 const NativePlayerView = requireNativeComponent<any>(NATIVE_VIEW);
 const { LivebuyRNBridge } = NativeModules;
@@ -1012,18 +1039,20 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
       // contract (no-op on non-Android platforms).
       beginScrub: () => dispatchBeginScrub(Platform.OS, dispatch),
       endScrub: () => dispatchEndScrub(Platform.OS, dispatch),
+      // rn-player-command-fixed-arity-core: optional args go through
+      // `playerCommandArgs` so every position is always sent (`null` when absent).
       sendChat: (message: string, eventId?: number) =>
-        dispatch('sendChat', eventId != null ? [message, eventId] : [message]),
+        dispatch('sendChat', playerCommandArgs.sendChat(message, eventId)),
       skipStart: () => dispatch('skipStart', []),
       cancelAutoNext: () => dispatch('cancelAutoNext', []),
       requestEventJoin: (eid: number, keyword: string) =>
         dispatch('requestEventJoin', [eid, keyword]),
       requestViewCart: (productId?: string) =>
-        dispatch('requestViewCart', productId != null ? [productId] : []),
+        dispatch('requestViewCart', playerCommandArgs.requestViewCart(productId)),
       reportEventStay: (eventId: number, stayTime?: number) =>
-        dispatch('reportEventStay', stayTime != null ? [eventId, stayTime] : [eventId]),
+        dispatch('reportEventStay', playerCommandArgs.reportEventStay(eventId, stayTime)),
       requestAwardClaim: (winner, contact) =>
-        dispatch('requestAwardClaim', contact != null ? [winner, contact] : [winner]),
+        dispatch('requestAwardClaim', playerCommandArgs.requestAwardClaim(winner, contact)),
       // active-event-accessor-rn-core: read-only snapshot of the current active
       // events. Unlike the simulate*/command paths above (fire-and-forget via
       // dispatchViewManagerCommand), this needs a return value, so it calls the
@@ -1086,7 +1115,7 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
       // Sub-component simulate* refs (expand-simulate-bridge-parity)
       chatView: {
         simulateSendTap: (text: string, eventId?: number) =>
-          dispatch('chatView_simulateSendTap', eventId != null ? [text, eventId] : [text]),
+          dispatch('chatView_simulateSendTap', playerCommandArgs.chatView_simulateSendTap(text, eventId)),
         simulateLoadHistoryTap: () => dispatch('chatView_simulateLoadHistoryTap', []),
         simulateEventJoinTap: (eid: number, keyword: string) =>
           dispatch('chatView_simulateEventJoinTap', [eid, keyword]),
@@ -1101,7 +1130,10 @@ const LivebuyPlayerCore = forwardRef<LivebuyPlayerCoreRef, LivebuyPlayerCoreProp
         simulateProductTap: (product: LBProduct) =>
           dispatch('productListPanel_simulateProductTap', [product]),
         simulateAddCart: (product: LBProduct, spec?: LBBridgeSpec) =>
-          dispatch('productListPanel_simulateAddCart', spec != null ? [product, spec] : [product]),
+          dispatch(
+            'productListPanel_simulateAddCart',
+            playerCommandArgs.productListPanel_simulateAddCart(product, spec),
+          ),
         simulateRestockNotice: (product: LBProduct) =>
           dispatch('productListPanel_simulateRestockNotice', [product]),
       },

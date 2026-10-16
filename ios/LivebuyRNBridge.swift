@@ -74,7 +74,9 @@ final class LivebuyRNBridge: RCTEventEmitter {
     // MARK: - Module methods (called from JS)
 
     @objc func configure(
-        _ apiKey: NSNumber, secret: String, shopId: String, lang: String?,
+        // rn-ios-bridge-arg-types-core: `String`, matching the `.m` `NSString *` declaration and
+        // what JS actually sends (`String(options.apiKey)`).
+        _ apiKey: String, secret: String, shopId: String, lang: String?,
         displayName: String?, avatarUrl: String?, externalUserId: String?,
         autoPipOnIntercept: Bool,
         apiVersion: NSNumber, configFetchTimeoutMs: NSNumber,
@@ -113,10 +115,9 @@ final class LivebuyRNBridge: RCTEventEmitter {
         Task {
             do {
                 try await Livebuy.configure(
-                    // apiKey: SDK-wide invariant is String on iOS/Android/Flutter
-                    // (RN alone keeps it a JS `number` at the bridge boundary —
-                    // see react-native/README.md's `apiKey: 12345` example).
-                    apiKey: String(apiKey.intValue), secret: secret, shopId: shopId, lang: lang,
+                    // apiKey: String on all four platforms, RN bridge included — JS sends
+                    // `String(options.apiKey)`, so it is passed straight through.
+                    apiKey: apiKey, secret: secret, shopId: shopId, lang: lang,
                     user: user, autoPipOnIntercept: autoPipOnIntercept,
                     apiVersion: apiVersion.intValue,
                     configFetchTimeoutMs: configFetchTimeoutMs.intValue,
@@ -1931,10 +1932,12 @@ final class LivebuyPlayerViewManager: RCTViewManager {
 
     // rn-player-load-initial-seek-core: `startAt` mirrors the `.m`
     // `RCT_EXTERN_METHOD` declaration's fixed 2nd positional arg — the JS
-    // side always sends it (NSNull when there is no initial-seek value),
-    // so this is a plain `NSNumber?` (not `nonnull`).
-    @objc func load(_ reactTag: NSNumber, videoId: String, startAt: NSNumber?) {
-        withView(tag: reactTag) { $0.load(videoId: videoId, startAt: startAt?.doubleValue) }
+    // side always sends it (`null` when there is no initial-seek value).
+    // rn-ios-bridge-arg-types-core: declared `id` in the `.m` (RN rejects a
+    // nullable `NSNumber *`), so it arrives as `Any?` and is unwrapped here.
+    @objc func load(_ reactTag: NSNumber, videoId: String, startAt: Any?) {
+        let seconds = LivebuyRNBridge.optionalNumberArg(startAt)?.doubleValue
+        withView(tag: reactTag) { $0.load(videoId: videoId, startAt: seconds) }
     }
 
     // Legacy command name preserved as alias for backward compat (pre-headless RN
@@ -1974,7 +1977,9 @@ final class LivebuyPlayerViewManager: RCTViewManager {
         withView(tag: reactTag) { $0.seekBy(delta) }
     }
 
-    @objc func sendChat(_ reactTag: NSNumber, message: String, eventId: NSNumber?) {
+    // rn-ios-bridge-arg-types-core: optional number declared `id` in the `.m` (see `load`).
+    @objc func sendChat(_ reactTag: NSNumber, message: String, eventId: Any?) {
+        let eventId = LivebuyRNBridge.optionalNumberArg(eventId)
         withView(tag: reactTag) { $0.sendChat(message, eventId: eventId) }
     }
 
@@ -1997,7 +2002,9 @@ final class LivebuyPlayerViewManager: RCTViewManager {
         withView(tag: reactTag) { $0.requestViewCart(productId: productId) }
     }
 
-    @objc func reportEventStay(_ reactTag: NSNumber, eventId: NSNumber, stayTime: NSNumber?) {
+    // rn-ios-bridge-arg-types-core: optional number declared `id` in the `.m` (see `load`).
+    @objc func reportEventStay(_ reactTag: NSNumber, eventId: NSNumber, stayTime: Any?) {
+        let stayTime = LivebuyRNBridge.optionalNumberArg(stayTime)
         withView(tag: reactTag) { $0.reportEventStay(eventId: eventId.intValue, stayTime: stayTime) }
     }
 
@@ -2016,7 +2023,9 @@ final class LivebuyPlayerViewManager: RCTViewManager {
     // MARK: - Sub-component simulate* commands (expand-simulate-bridge-parity)
 
     // ChatView
-    @objc func chatView_simulateSendTap(_ reactTag: NSNumber, text: String, eventId: NSNumber?) {
+    // rn-ios-bridge-arg-types-core: optional number declared `id` in the `.m` (see `load`).
+    @objc func chatView_simulateSendTap(_ reactTag: NSNumber, text: String, eventId: Any?) {
+        let eventId = LivebuyRNBridge.optionalNumberArg(eventId)
         withView(tag: reactTag) { $0.chatView_simulateSendTap(text: text, eventId: eventId) }
     }
     @objc func chatView_simulateLoadHistoryTap(_ reactTag: NSNumber) {
