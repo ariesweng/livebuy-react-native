@@ -692,6 +692,9 @@ final class LivebuyRNBridge: RCTEventEmitter {
                     out["track"] = trackDict
                 }
                 resolve(out)
+            } catch LBSDKError.notConfigured {
+                // live-bid-parity-align-rn-core: not configured → NOT_CONFIGURED, like every other method.
+                reject("NOT_CONFIGURED", "configure() not yet called", nil)
             } catch let lbError as LBError {
                 // cart-add-tier2-unify: a 30s 重複加購 dedupe-hit → reject code
                 // `cart_add_deduplicated` so JS maps the typed `{ type: 'cartAddDeduplicated' }`
@@ -700,6 +703,86 @@ final class LivebuyRNBridge: RCTEventEmitter {
                 if case .cartAddDeduplicated = lbError {
                     reject("cart_add_deduplicated", "Add-to-cart deduplicated (already added within 30 s).", Self.rejectionError(lbError))
                 } else if case .serverError(let code, let message) = lbError {
+                    reject(String(code), message, Self.rejectionError(lbError))
+                } else {
+                    reject("LB_ERROR", lbError.localizedDescription, Self.rejectionError(lbError))
+                }
+            } catch {
+                reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
+            }
+        }
+    }
+
+    // MARK: - Flash-sale bid (live-bid-rn-core, parity iOS live-bid-ios-core)
+
+    /// 搶購場下標。委派 `Livebuy.placeBid(videoId:goodsId:specificationId:num:)`（原生 core 打
+    /// `POST /sdk/video/bid`、派 `BID_PLACE_RESULT`；RN 不自建 HTTP）。`specificationId` 缺 key / NSNull
+    /// → `nil`（原生不送 `specification_id`）。Reject code 與 `addToCart` 同一套，供 JS
+    /// `toTypedBridgeRejection` 轉 typed `LBError`：在途防重複 → `cart_add_deduplicated`；
+    /// `serverError` → 其 inner code（如 `401` 訪客、`500` 業務錯誤）；未 configure → `NOT_CONFIGURED`；
+    /// 其他 → `LB_ERROR`。後端 `error_code` 經 `rejectionError` 放進 `userInfo.backendErrorCode`。
+    @objc func placeBid(
+        _ options: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        guard let videoId = options["videoId"] as? String,
+              let goodsId = (options["goodsId"] as? NSNumber)?.intValue,
+              let num = (options["num"] as? NSNumber)?.intValue else {
+            reject("LB_ERROR", "placeBid requires videoId, goodsId and num", nil)
+            return
+        }
+        let specificationId = (options["specificationId"] as? NSNumber)?.intValue
+        Task {
+            do {
+                let result = try await Livebuy.placeBid(
+                    videoId: videoId, goodsId: goodsId,
+                    specificationId: specificationId, num: num)
+                resolve([
+                    "buyingId": result.buyingId,
+                    "goodsId": result.goodsId,
+                    "specificationId": result.specificationId,
+                    "num": result.num,
+                ])
+            } catch LBSDKError.notConfigured {
+                reject("NOT_CONFIGURED", "configure() not yet called", nil)
+            } catch let lbError as LBError {
+                if case .cartAddDeduplicated = lbError {
+                    reject("cart_add_deduplicated", "Bid already in flight for this product / spec.", Self.rejectionError(lbError))
+                } else if case .serverError(let code, let message) = lbError {
+                    reject(String(code), message, Self.rejectionError(lbError))
+                } else {
+                    reject("LB_ERROR", lbError.localizedDescription, Self.rejectionError(lbError))
+                }
+            } catch {
+                reject("LB_ERROR", error.localizedDescription, Self.rejectionError(error))
+            }
+        }
+    }
+
+    /// 得標確認。委派 `Livebuy.confirmBidWin(videoId:buyingIds:[Int])`（`POST /sdk/video/bidconfirm`，
+    /// 不派事件）。JS 端已用 `normalizeBuyingIds` 過濾成整數；空陣列 JS 不會呼叫到這裡。Resolve
+    /// `[{buyingId, errorCode}]`（`errorCode == nil` → `NSNull`，JS 讀到 `null`），順序同回應。
+    /// Reject code 規則同 `placeBid`。
+    @objc func confirmBidWin(
+        _ videoId: String, buyingIds: [NSNumber],
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let ids = buyingIds.map { $0.intValue }
+        Task {
+            do {
+                let items = try await Livebuy.confirmBidWin(videoId: videoId, buyingIds: ids)
+                resolve(items.map { item -> [String: Any] in
+                    [
+                        "buyingId": item.buyingId,
+                        "errorCode": item.errorCode.map { $0 as Any } ?? NSNull(),
+                    ]
+                })
+            } catch LBSDKError.notConfigured {
+                reject("NOT_CONFIGURED", "configure() not yet called", nil)
+            } catch let lbError as LBError {
+                if case .serverError(let code, let message) = lbError {
                     reject(String(code), message, Self.rejectionError(lbError))
                 } else {
                     reject("LB_ERROR", lbError.localizedDescription, Self.rejectionError(lbError))
@@ -932,6 +1015,12 @@ final class LivebuyRNBridge: RCTEventEmitter {
         body["beginTime"] = product.beginTime.map { $0 as Any } ?? NSNull()
         body["endTime"] = product.endTime.map { $0 as Any } ?? NSNull()
         if let videoId = product.videoId { body["videoId"] = videoId }
+        // live-bid-rn-core: 搶購關鍵字（恆帶，可能為 ""）。
+        body["saleKeyword"] = product.saleKeyword
+        // flash-sale-goods-fields-rn-core: 本人已搶購數／全場合計／每人限購（恆帶，缺值時原生為 0）。
+        body["buyingNum"] = product.buyingNum
+        body["totalBuyingNum"] = product.totalBuyingNum
+        body["limitNum"] = product.limitNum
         return body
     }
 
@@ -952,6 +1041,12 @@ final class LivebuyRNBridge: RCTEventEmitter {
             "originalPriceShow": spec.originalPriceShow,
             "stock": spec.stock,
             "photos": spec.photos,
+            // live-bid-rn-core: 規格層搶購關鍵字（恆帶，可能為 ""）。
+            "saleKeyword": spec.saleKeyword,
+            // flash-sale-goods-fields-rn-core: 規格層搶購數量（恆帶，缺值時原生為 0）。
+            "buyingNum": spec.buyingNum,
+            "totalBuyingNum": spec.totalBuyingNum,
+            "limitNum": spec.limitNum,
         ]
     }
 
@@ -1039,6 +1134,10 @@ final class LivebuyRNBridge: RCTEventEmitter {
             // — `= upstream sale_type==2`, always present, independent of
             // `type`/`live_status`; raw passthrough, not interpreted here.
             "is_flash_sale": channel.isFlashSale,
+            // flash-sale-goods-fields-rn-core — additive. Top-level `LBChannel.saleKeywordRequired`
+            // (`sale_keyword_required`): 直播管家搶購場為 true，商品 `saleKeyword` 為空時下游隱藏加購鈕。
+            // Raw passthrough, not interpreted here.
+            "sale_keyword_required": channel.saleKeywordRequired,
             // rn-guest-comment-channel-bridge-core — additive. Guest-comment send gate
             // (`0`/`1`, REVERSE semantics: 0 = restricted to logged-in members). Raw
             // passthrough of `channel.guestComment`; feeds `chatEnabled`/`guestEditAvailable`
@@ -1221,7 +1320,8 @@ private final class BridgeListener: NSObject, LivebuyEventListener {
 /// rn-guest-comment-channel-bridge-core added guestComment; rn-moment-products-bridge-core
 /// added products/narratingProduct; rn-viewer-count-bridge-core added viewerCount;
 /// rn-endscreen-next-bridge-core added next;
-/// rn-channel-notice-bridge-core added notice/sysNotice). Deliberately NOT a
+/// rn-channel-notice-bridge-core added notice/sysNotice;
+/// flash-sale-goods-fields-rn-core added saleKeywordRequired). Deliberately NOT a
 /// whole-`LBChannel` comparison — `LBChannel` carries many more fields (goods, nav,
 /// spec, watchNum, …) that have no bearing on this projection; comparing the full
 /// model would re-fire on changes this event doesn't even carry, while comparing
@@ -1261,6 +1361,10 @@ private struct ChannelInfoSnapshot: Equatable {
     // still included here defensively, following the existing pattern for every
     // other projected field.
     let isFlashSale: Bool
+    // flash-sale-goods-fields-rn-core — additive. Must stay in sync with the projected
+    // `sale_keyword_required` key, otherwise the dedupe path would miss a
+    // saleKeywordRequired-only change.
+    let saleKeywordRequired: Bool
     // rn-guest-comment-channel-bridge-core — additive. Must stay in sync with
     // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange dedupe path
     // would miss a guestComment-only change. UNLIKE isFlashSale's purely-theoretical
@@ -1318,6 +1422,7 @@ private struct ChannelInfoSnapshot: Equatable {
         type = channel.type
         shopIntro = channel.shop.intro
         isFlashSale = channel.isFlashSale
+        saleKeywordRequired = channel.saleKeywordRequired
         guestComment = channel.guestComment
         self.products = products.map(ProductFingerprint.init)
         self.narratingProduct = narratingProduct.map(ProductFingerprint.init)
@@ -1337,6 +1442,12 @@ private struct ChannelInfoSnapshot: Equatable {
 /// Requirement documents as actually consumed by the pinned-card / product-list UI (`name` /
 /// `priceShow` / tag derived from `narrateStatus` / `isHot` / `isOutSoon`), plus `soldOut` (drives
 /// the sold-out price-column label).
+///
+/// flash-sale-goods-fields-rn-core added `saleKeyword` / `buyingNum` / `totalBuyingNum` /
+/// `limitNum` plus a per-spec `specs` fingerprint: a goods poll that only moves a buying
+/// count (本人已下標 → 「正在等待結果...」) or a limit, at product OR spec level, must still
+/// re-emit `products` to JS. Android needs no equivalent — its `ChannelInfoSnapshot` compares
+/// the `LBProduct` data class structurally, which already covers every field incl. specs.
 private struct ProductFingerprint: Equatable {
     let id: String
     let name: String
@@ -1345,6 +1456,11 @@ private struct ProductFingerprint: Equatable {
     let isHot: Int
     let isOutSoon: Int
     let soldOut: Int
+    let saleKeyword: String
+    let buyingNum: Int
+    let totalBuyingNum: Int
+    let limitNum: Int
+    let specs: [SpecFingerprint]
 
     init(_ product: LBProduct) {
         id = product.id
@@ -1354,6 +1470,30 @@ private struct ProductFingerprint: Equatable {
         isHot = product.isHot
         isOutSoon = product.isOutSoon
         soldOut = product.soldOut
+        saleKeyword = product.saleKeyword
+        buyingNum = product.buyingNum
+        totalBuyingNum = product.totalBuyingNum
+        limitNum = product.limitNum
+        specs = product.specifications.map(SpecFingerprint.init)
+    }
+}
+
+/// Spec-level part of `ProductFingerprint` (flash-sale-goods-fields-rn-core) — `LBSpec` is not
+/// `Equatable` either. Only the bid-related fields plus `id` (identity); other spec fields keep
+/// the pre-existing "not part of the dedupe key" behavior.
+private struct SpecFingerprint: Equatable {
+    let id: String
+    let saleKeyword: String
+    let buyingNum: Int
+    let totalBuyingNum: Int
+    let limitNum: Int
+
+    init(_ spec: LBSpec) {
+        id = spec.id
+        saleKeyword = spec.saleKeyword
+        buyingNum = spec.buyingNum
+        totalBuyingNum = spec.totalBuyingNum
+        limitNum = spec.limitNum
     }
 }
 
@@ -1794,7 +1934,13 @@ private func lbProductFromArgs(_ map: NSDictionary) -> LBProduct? {
         // add-product-video-id-core-rn: videoId — nil when absent, letting a
         // host simulate an `other_goods[]`-sourced product via
         // `simulateProductTap`/`simulateAddCart`.
-        videoId: map["videoId"] as? String
+        videoId: map["videoId"] as? String,
+        // live-bid-rn-core: missing-key tolerant, same default as LBProduct's own init.
+        saleKeyword: map["saleKeyword"] as? String ?? "",
+        // flash-sale-goods-fields-rn-core: missing / non-numeric → 0 (LBProduct's own default).
+        buyingNum: rnInt(map["buyingNum"]) ?? 0,
+        totalBuyingNum: rnInt(map["totalBuyingNum"]) ?? 0,
+        limitNum: rnInt(map["limitNum"]) ?? 0
     )
 }
 
@@ -1810,7 +1956,11 @@ private func lbSpecFromArgs(_ map: NSDictionary) -> LBSpec? {
         originalPrice: rnDouble(map["originalPrice"]),
         originalPriceShow: map["originalPriceShow"] as? String ?? "",
         stock: rnInt(map["stock"]) ?? 0,
-        photos: rnStringArray(map["photos"])
+        photos: rnStringArray(map["photos"]),
+        saleKeyword: map["saleKeyword"] as? String ?? "",
+        buyingNum: rnInt(map["buyingNum"]) ?? 0,
+        totalBuyingNum: rnInt(map["totalBuyingNum"]) ?? 0,
+        limitNum: rnInt(map["limitNum"]) ?? 0
     )
 }
 
@@ -1869,7 +2019,11 @@ private func lbSpecsFromArray(_ value: Any?) -> [LBSpec] {
             originalPrice: rnDouble(e["originalPrice"]),
             originalPriceShow: e["originalPriceShow"] as? String ?? "",
             stock: rnInt(e["stock"]) ?? 0,
-            photos: rnStringArray(e["photos"])
+            photos: rnStringArray(e["photos"]),
+            saleKeyword: e["saleKeyword"] as? String ?? "",
+            buyingNum: rnInt(e["buyingNum"]) ?? 0,
+            totalBuyingNum: rnInt(e["totalBuyingNum"]) ?? 0,
+            limitNum: rnInt(e["limitNum"]) ?? 0
         )
     }
 }

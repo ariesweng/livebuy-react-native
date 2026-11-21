@@ -35,7 +35,10 @@ Pod::Spec.new do |s|
   # core is now published as a CocoaPods pod (livebuy-ios-sdk/LivebuySDK.podspec —
   # a vendored LivebuySDK.xcframework + the pinned AWS IVS 1.52.0 engine),
   # mirroring the SwiftPM dist. Declared here so autolink pulls it transitively:
-  # `~> 4.30` = CocoaPods optimistic operator, [4.30.0, 5.0.0). Floor raised from `4.29`
+  # `~> 4.32` = CocoaPods optimistic operator, [4.32.0, 5.0.0). Floor raised from `4.30`
+  # (bridge-native-pin-4-32-0-core) because the bridge calls `Livebuy.placeBid` / `confirmBidWin` and
+  # reads the flash-sale fields, which exist only from iOS SDK 4.32.0 (live-bid-ios-core,
+  # flash-sale-goods-fields-ios-core). Previous floor `4.30`, raised from `4.29`
   # (bridge-native-pin-4-30-0-core) so the drop-in auto-close on `advance_exhausted` gets the core
   # that emits it (vod-advance-skip-unplayable-ios-core; behavior floor, the bridge also compiles
   # against 4.29.0). Previous floor `4.29` (bridge-native-pin-4-29-0-core) because the bridge's `getLanguage` now reads
@@ -54,7 +57,7 @@ Pod::Spec.new do |s|
   # is a point-in-time snapshot of "current major line", not a lock on one version — it
   # will need bumping again if core ever cuts a new major; don't assume `4.0` stays the
   # answer forever.
-  s.dependency "LivebuySDK", "~> 4.30"
+  s.dependency "LivebuySDK", "~> 4.32"
   #
   # RESOLUTION — the consumer's Podfile MUST make the `LivebuySDK` pod findable
   # (exactly like SwiftPM consumers add `.package(url:)`, or the Android SDK's

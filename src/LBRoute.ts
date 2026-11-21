@@ -33,6 +33,12 @@ export const LBRoute = {
   // rn-lbroute-eventstay-parity — event-stay heartbeat. Canonical path mirrored here for four-end
   // LBRoute parity (RN never calls it directly; the native SDK owns the HTTP via reportEventStay).
   videoEventstay: '/sdk/video/eventstay',
+  // live-bid-rn-core — 搶購下標 / 得標取單 / 得標確認。Canonical paths mirrored here for four-end
+  // LBRoute parity (RN never calls them directly; the native SDK owns the HTTP via placeBid /
+  // its Player's bid-win coordinator / confirmBidWin). All three are login-mandatory natively.
+  videoBid: '/sdk/video/bid',
+  videoBidorder: '/sdk/video/bidorder',
+  videoBidconfirm: '/sdk/video/bidconfirm',
   login: '/sdk/login',
   log: '/sdk/log',
   logConfig: '/sdk/log_config',

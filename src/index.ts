@@ -3,6 +3,8 @@ export { default as LivebuySDK } from './LivebuySDK';
 export { cartTrackAttributeFields } from './LivebuySDK';
 // backend-error-code-rn-core — decode the backend raw error_code from a bridge reject
 export { pickBackendErrorCode } from './LivebuySDK';
+// live-bid-rn-core — confirmBidWin 的 id 正規化（略過無法轉成整數的值）
+export { normalizeBuyingIds } from './LivebuySDK';
 export type {
   LBUser,
   LBConfigOptions,
@@ -40,6 +42,10 @@ export type {
   LBAwardClaimStatus,
   // active-event-accessor-rn-core — activeEvents() Promise accessor snapshot model
   LBActiveEvent,
+  // live-bid-rn-core — 搶購下標 / 得標確認
+  LBPlaceBidOptions,
+  LBBidResult,
+  LBBidConfirmItem,
   // widget-bridge-color-core — web-embed widget colors host-readable output
   LBWidgetColors,
   // widget-product-card-bridge-rn — the colors plus the carousel product-card
@@ -112,6 +118,9 @@ export type {
   LBAwardClaimResultParams,
   // rn-winreceived-typed-params-core — WIN_RECEIVED typed params
   LBWinReceivedParams,
+  // live-bid-rn-core — BID_PLACE_RESULT / BID_WON typed params
+  LBBidPlaceResultParams,
+  LBBidWonParams,
   // active-event-host-facing-exposure-rn-core — ACTIVE_EVENT_STARTED typed params
   LBActiveEventStartedParams,
   // replay-chat-history-load + replay-chat-timeline-sync — CHAT_HISTORY_LOADED params (full-list + per-comment time)

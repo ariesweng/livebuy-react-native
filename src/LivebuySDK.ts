@@ -233,6 +233,27 @@ export interface LBSpec {
   stock: number;
   /** Spec image URLs (may be empty). */
   photos: string[];
+  /**
+   * 規格層搶購關鍵字（`sale_keyword`，live-bid-rn-core，parity iOS / Android `LBSpec.saleKeyword`）。
+   * 聊天室下標關鍵字為「商品 `saleKeyword` ＋規格 `saleKeyword`」＋`+數量`；空字串的規格不能用關鍵字
+   * 下標。後端只在搶購場的 `/sdk/video/goods` 帶，缺值 / null 由原生 core 解成 `""`。
+   *
+   * 由新版原生 core（iOS / Android 含 live-bid 的版本）序列化時 bridge **恆帶**此 key（可能為 `""`）。
+   * 型別刻意為 optional：理由同 {@link LBProduct.description}——TS 沒有跨模組欄位預設值，設成必填會讓
+   * `livebuy-react-native-ui` / `-reference-ui` 手寫的 `LBSpec` literal 全部 typecheck 失敗；舊原生
+   * core 或手寫 payload 不帶時讀到 `undefined`，host 自行 `?? ''`。比對關鍵字由原生 core 處理，RN 不重做。
+   */
+  saleKeyword?: string;
+  /**
+   * 規格層本人已搶購數量（`buying_num`，flash-sale-goods-fields-rn-core，parity iOS / Android
+   * `LBSpec.buyingNum`）。語意同 {@link LBProduct.buyingNum}。新版原生 core 序列化時 bridge 恆帶
+   * （缺值時原生為 `0`）；型別為 optional，理由同 {@link LBSpec.saleKeyword}，host 自行 `?? 0`。
+   */
+  buyingNum?: number;
+  /** 規格層全場已搶購合計（`total_buying_num`），語意同 {@link LBProduct.totalBuyingNum}。optional 理由同上。 */
+  totalBuyingNum?: number;
+  /** 規格層每人限購（`limit_num`，`0` = 不限購），語意同 {@link LBProduct.limitNum}。optional 理由同上。 */
+  limitNum?: number;
 }
 
 /**
@@ -351,6 +372,28 @@ export interface LBProduct {
    * sending `null` (optional, not nullable — add-product-video-id-core-rn).
    */
   videoId?: string;
+  /**
+   * 搶購關鍵字（`sale_keyword`，live-bid-rn-core，parity iOS / Android `LBProduct.saleKeyword`）——
+   * 聊天室打「關鍵字＋數量」下標用；有規格的商品，關鍵字為「商品關鍵字＋規格關鍵字」（見
+   * {@link LBSpec.saleKeyword}）。後端只在搶購場的 `/sdk/video/goods` 帶，缺值 / null 由原生 core
+   * 解成 `""`。聊天關鍵字比對與自動下標都在原生 core 內完成，RN 不需重做。
+   *
+   * 新版原生 core 序列化時 bridge **恆帶**此 key（可能為 `""`）；型別刻意為 optional，理由同
+   * {@link LBProduct.description}（避免依賴套件手寫 literal 全部 typecheck 失敗）。
+   */
+  saleKeyword?: string;
+  /**
+   * 本人對這個商品已搶購數量（`buying_num`，flash-sale-goods-fields-rn-core，parity iOS / Android
+   * `LBProduct.buyingNum`）。後端只在搶購場直播中帶，缺值由原生 core 解成 `0`；`> 0` 時網頁在選規格
+   * 面板顯示「正在等待結果...」。新版原生 core 序列化時 bridge **恆帶**此 key；型別刻意為 optional，
+   * 理由同 {@link LBProduct.saleKeyword}，舊原生 core 或手寫 payload 不帶時讀到 `undefined`，host 自行 `?? 0`。
+   * SDK 不依此欄位改變任何行為。
+   */
+  buyingNum?: number;
+  /** 全場已搶購合計（`total_buying_num`），只在搶購場直播中帶，缺值為 `0`。optional 理由同 {@link LBProduct.buyingNum}。 */
+  totalBuyingNum?: number;
+  /** 每人限購數量（`limit_num`），`0` 代表不限購；只在搶購場直播中且有設限購時帶。optional 理由同 {@link LBProduct.buyingNum}。 */
+  limitNum?: number;
 }
 
 export interface LBPollResponse {
@@ -764,6 +807,14 @@ export interface LBPlayerChannelInfo {
    */
   isFlashSale: boolean;
   /**
+   * 搶購場商品是否必須有搶購關鍵字才能下標（`channel.saleKeywordRequired`，wire key
+   * `sale_keyword_required` — a top-level `LBChannel` field, parity iOS / Android
+   * `LBChannel.saleKeywordRequired`）。直播管家搶購場為 `true`，此時 `saleKeyword` 為空的商品
+   * 應隱藏加購／搶購鈕（同網頁；由下游畫面層決定，SDK 不據此改變行為）。缺值 → `false`
+   * (flash-sale-goods-fields-rn-core) — see {@link coerceSaleKeywordRequired}.
+   */
+  saleKeywordRequired: boolean;
+  /**
    * Guest-comment send gate (`channel.guestComment`, wire key `guest_comment`
    * — a top-level `LBChannel` field). `0`/`1`, REVERSE semantics: `0` =
    * comments restricted to logged-in members / guests blocked, `1` = guests
@@ -871,6 +922,8 @@ export interface LBPlayerChannelInfo {
  *   - `is_flash_sale`: boolean (documented wire shape) OR Number 0/1 OR a
  *     stringified boolean/Int is tolerated; missing / unparseable → `false` —
  *     see {@link coerceIsFlashSale}.
+ *   - `sale_keyword_required`: same tolerance as `is_flash_sale`; missing / unparseable →
+ *     `false` — see {@link coerceSaleKeywordRequired} (flash-sale-goods-fields-rn-core).
  *   - `guest_comment`: Number OR a stringified Int is tolerated; missing /
  *     unparseable → `1` (fail-open — NOT `-1` unknown like `live_status`/
  *     `type`, NOT `0` conservative like `is_subtitle`) — see
@@ -914,6 +967,7 @@ export function mapPlayerChannelInfo(wire: {
   type?: number | string | null;
   shop_intro?: string | null;
   is_flash_sale?: boolean | number | string | null;
+  sale_keyword_required?: boolean | number | string | null;
   guest_comment?: number | string | null;
   products?: LBProduct[] | null;
   narrating_product?: LBProduct | null;
@@ -939,6 +993,7 @@ export function mapPlayerChannelInfo(wire: {
     type: coerceChannelType(wire.type),
     shopIntro: wire.shop_intro ?? '',
     isFlashSale: coerceIsFlashSale(wire.is_flash_sale),
+    saleKeywordRequired: coerceSaleKeywordRequired(wire.sale_keyword_required),
     guestComment: coerceGuestComment(wire.guest_comment),
     products: Array.isArray(wire.products) ? wire.products : [],
     narratingProduct: wire.narrating_product ?? null,
@@ -1050,6 +1105,24 @@ function coerceIsFlashSale(
     if (normalized === 'true' || normalized === '1') return true;
     if (normalized === 'false' || normalized === '0') return false;
     return false;
+  }
+  return false;
+}
+
+/**
+ * Coerce a wire `sale_keyword_required` flag to a boolean
+ * (flash-sale-goods-fields-rn-core). Same tolerance as {@link coerceIsFlashSale}
+ * (boolean / Number 0/1 / stringified boolean or Int); absent / unparseable →
+ * `false`. Kept as its own function because the two flags have unrelated semantics.
+ */
+function coerceSaleKeywordRequired(
+  value: boolean | number | string | null | undefined
+): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1';
   }
   return false;
 }
@@ -1327,6 +1400,96 @@ export interface LBAddToCartResult {
    * 呼叫 {@link LivebuySDK.reportCartTrack}。
    */
   track?: LBCartTrack;
+}
+
+// MARK: - Flash-sale bid types (live-bid-rn-core, parity iOS / Android live-bid core)
+//
+// 搶購場「先下標、得標才成單」流程（比照網頁、配合後端 sdk-live-bid）。RN 只是 bridge：
+//   1. host 呼叫 {@link LivebuySDK.placeBid} → 原生 core 打 `POST /sdk/video/bid`，並派通知型事件
+//      `BID_PLACE_RESULT`（見 `LBBidPlaceResultParams`）。
+//   2. 得標後由原生 Player 自動取單（`bidorder`），派 `CART_ADD_REQUEST`（`cart_origin='bid_won'`）
+//      與 `BID_WON`——RN 不需任何程式碼，事件經統一 listener 泛型透傳。
+//   3. 觀眾確認後 host 呼叫 {@link LivebuySDK.confirmBidWin}（`POST /sdk/video/bidconfirm`）。
+// 聊天室「關鍵字＋數量」自動下標也在原生 core 內，RN 不重做。
+
+/** {@link LivebuySDK.placeBid} 的參數（對齊原生 `placeBid(videoId:goodsId:specificationId:num:)`）。 */
+export interface LBPlaceBidOptions {
+  /** 當前影片短碼。 */
+  videoId: string;
+  /** 商品 id（`LBProduct.id` 的數字值）。 */
+  goodsId: number;
+  /** 規格 id；無規格商品省略（原生端不送 `specification_id`）。 */
+  specificationId?: number;
+  /** 下標數量（正整數）。 */
+  num: number;
+}
+
+/**
+ * {@link LivebuySDK.placeBid} 成功的回傳值（對齊原生 `LBBidResult`）。`buyingId` 是這筆搶購登記的識別碼，
+ * 之後 `BID_WON.buying_id`、`CART_ADD_REQUEST.buying_id`（事件中為字串）與 {@link LivebuySDK.confirmBidWin}
+ * 都以它對應。同一人對同一商品規格再下標時，後端累加數量並回同一個 `buyingId`。
+ */
+export interface LBBidResult {
+  buyingId: number;
+  goodsId: number;
+  /** 無具名規格時為 `0`。 */
+  specificationId: number;
+  /** 本次下標數量。 */
+  num: number;
+}
+
+/**
+ * {@link LivebuySDK.confirmBidWin} 每筆結果（對齊原生 `LBBidConfirmItem`）。`errorCode` 為 `null` 代表成功
+ * （含「已確認過」）；失敗值為後端原樣字串，例如 `bid_not_found`。
+ */
+export interface LBBidConfirmItem {
+  buyingId: number;
+  errorCode: string | null;
+}
+
+/**
+ * live-bid-rn-core — {@link LivebuySDK.confirmBidWin} 的 id 正規化（純函式，無副作用）。對齊原生
+ * `confirmBidWin(videoId:buyingIds:[String])` 便利 overload 的「無法轉成整數的值略過」：
+ * - number：只收安全整數（`Number.isSafeInteger`），其餘（小數、NaN、Infinity）略過；
+ * - string：只收全為十進位數字（可帶一個 `+` / `-` 號）且轉出為安全整數者，其餘（`"x"`、`""`、`"1.5"`、
+ *   前後空白）略過；
+ * - 其他型別略過。順序保留。
+ */
+export function normalizeBuyingIds(buyingIds: ReadonlyArray<number | string>): number[] {
+  const ids: number[] = [];
+  for (const raw of buyingIds) {
+    if (typeof raw === 'number') {
+      if (Number.isSafeInteger(raw)) ids.push(raw);
+    } else if (typeof raw === 'string' && /^[+-]?\d+$/.test(raw)) {
+      const n = Number(raw);
+      if (Number.isSafeInteger(n)) ids.push(n);
+    }
+  }
+  return ids;
+}
+
+/**
+ * 共用的原生 reject → typed {@link LBError} 轉換（`addToCart` / `placeBid` / `confirmBidWin`）：
+ * - reject code `cart_add_deduplicated` → `{ type: 'cartAddDeduplicated' }`；
+ * - 數字 reject code（原生 `serverError` 的 inner code，例如 `401`／`500`）→ `{ type: 'serverError', code,
+ *   message }`，`userInfo.backendErrorCode` 為非空字串時另帶 `backendErrorCode`（backend-error-code-rn-core）；
+ * - 其他（`NOT_CONFIGURED`、`LB_ERROR`、非物件）原樣回傳。
+ * 回傳要丟出的值；呼叫端負責 `throw`。
+ */
+function toTypedBridgeRejection(e: unknown): unknown {
+  const raw = e as { code?: string; message?: string } | null;
+  if (raw?.code === 'cart_add_deduplicated') {
+    const typed: LBError = { type: 'cartAddDeduplicated' };
+    return typed;
+  }
+  const code = Number(raw?.code);
+  if (Number.isInteger(code)) {
+    const typed: LBError = { type: 'serverError', code, message: raw?.message ?? '' };
+    const backendErrorCode = pickBackendErrorCode(e);
+    if (backendErrorCode !== undefined) typed.backendErrorCode = backendErrorCode;
+    return typed;
+  }
+  return e;
 }
 
 // MARK: - Widget colors (widget-bridge-color-core)
@@ -2008,30 +2171,63 @@ const LivebuySDK = {
    * (rn-bridge-forward-backend-error-code-and-replay-raw-core); RN core 2.12.0 and earlier never do.
    */
   addToCart(options: LBAddToCartOptions): Promise<LBAddToCartResult> {
+    // cart-add-tier2-unify: a dedupe-hit reject code → typed cartAddDeduplicated; a numeric code
+    // (e.g. "401" for an empty buy_no) → typed serverError so the requester can branch needs-login
+    // (401) vs a genuine failure (cart-needs-login-vs-failure); backend-error-code-rn-core keeps the
+    // backend's raw error_code only when the bridge attached a non-empty string. Shared with
+    // placeBid / confirmBidWin via toTypedBridgeRejection (live-bid-rn-core; behavior unchanged).
     return LivebuyRNBridge.addToCart(options).catch((e: unknown) => {
-      const raw = e as { code?: string; message?: string } | null;
-      // cart-add-tier2-unify: dedupe-hit reject code → typed cartAddDeduplicated.
-      if (raw?.code === 'cart_add_deduplicated') {
-        const typed: LBError = { type: 'cartAddDeduplicated' };
-        throw typed;
-      }
-      // The native bridge rejects a core `serverError` with the inner code as the reject `code`
-      // (e.g. "401" for an empty buy_no); map it to the documented typed `LBError` so the
-      // requester can branch needs-login (401) vs a genuine failure (cart-needs-login-vs-failure).
-      const code = Number(raw?.code);
-      if (Number.isInteger(code)) {
-        const typed: LBError = {
-          type: 'serverError',
-          code,
-          message: raw?.message ?? '',
-        };
-        // backend-error-code-rn-core: keep the backend's raw error_code only when the bridge
-        // attached a non-empty string (userInfo.backendErrorCode); otherwise omit the key.
-        const backendErrorCode = pickBackendErrorCode(e);
-        if (backendErrorCode !== undefined) typed.backendErrorCode = backendErrorCode;
-        throw typed;
-      }
-      throw e;
+      throw toTypedBridgeRejection(e);
+    });
+  },
+
+  /**
+   * 搶購場下標（live-bid-rn-core，parity iOS `Livebuy.placeBid` / Android `LivebuySDK.placeBid`）。
+   * 委派原生 core 打 `POST /sdk/video/bid`（RN 不自建 HTTP），成功 resolve {@link LBBidResult}。
+   * 原生 core 送出請求後一律派通知型事件 `BID_PLACE_RESULT`（`placed` / `failed`，見
+   * `LBBidPlaceResultParams`）。
+   *
+   * - 需要登入：訪客不送請求，原生派 `AUTH_REQUIRED`（`trigger_action='bid_place'`，帶 `video_id`、
+   *   `retry_token`），再 reject `{ type: 'serverError', code: 401 }`；此時不派 `BID_PLACE_RESULT`。
+   * - 同一組 `(videoId, goodsId, specificationId)` 的下標仍在進行中時，reject
+   *   `{ type: 'cartAddDeduplicated' }`（防連點把數量加倍），不送請求、不派 `BID_PLACE_RESULT`。
+   * - 後端業務錯誤 reject `{ type: 'serverError', code, message, backendErrorCode? }`，例如
+   *   `out_of_stock` / `purchase_limit_exceeded`（限購數量在 `BID_PLACE_RESULT` 的 `limit_num` /
+   *   `buying_num`）。
+   * - `configure` 尚未完成：reject code `NOT_CONFIGURED`（原樣，不轉 typed）。
+   * - 不呼叫 addcart、不占用 30 秒加購防重複時窗、不送 `goods_cart` 埋點。
+   *
+   * `specificationId` 省略時 bridge 不帶此 key（原生端不送 `specification_id`）。
+   */
+  placeBid(options: LBPlaceBidOptions): Promise<LBBidResult> {
+    const args: Record<string, string | number> = {
+      videoId: options.videoId,
+      goodsId: options.goodsId,
+      num: options.num,
+    };
+    if (typeof options.specificationId === 'number') args.specificationId = options.specificationId;
+    return Promise.resolve(LivebuyRNBridge.placeBid(args)).catch((e: unknown) => {
+      throw toTypedBridgeRejection(e);
+    });
+  },
+
+  /**
+   * 得標確認（live-bid-rn-core，parity iOS `Livebuy.confirmBidWin` / Android `LivebuySDK.confirmBidWin`）。
+   * 觀眾看過「恭喜搶購成功」並按下確認後由 host 呼叫（必須在收到 `BID_WON` 之後）；委派原生 core 打
+   * `POST /sdk/video/bidconfirm`，只把紀錄標成已讀。SDK 不會自動呼叫，也不派任何事件。
+   *
+   * `buyingIds` 可放數字或字串（`BID_WON.buying_id` 是字串）：先經 {@link normalizeBuyingIds} 略過無法
+   * 轉成整數的值（對齊原生 String overload）；全部略過時**不呼叫原生、直接 resolve `[]`**。
+   *
+   * resolve 每筆 {@link LBBidConfirmItem}，順序同後端回應；單筆失敗（如 `bid_not_found`）只反映在該筆
+   * `errorCode`，不 reject。訪客 reject `{ type: 'serverError', code: 401 }`（不送請求、不派
+   * `AUTH_REQUIRED`）；整個請求失敗時 reject typed serverError（可帶 `backendErrorCode`）。
+   */
+  confirmBidWin(videoId: string, buyingIds: ReadonlyArray<number | string>): Promise<LBBidConfirmItem[]> {
+    const ids = normalizeBuyingIds(buyingIds);
+    if (ids.length === 0) return Promise.resolve([]);
+    return Promise.resolve(LivebuyRNBridge.confirmBidWin(videoId, ids)).catch((e: unknown) => {
+      throw toTypedBridgeRejection(e);
     });
   },
 

@@ -154,6 +154,18 @@ RCT_EXTERN_METHOD(addToCart:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+// live-bid-rn-core — 搶購下標 (POST /sdk/video/bid) / 得標確認 (POST /sdk/video/bidconfirm).
+// placeBid takes a dictionary (like addToCart) so the optional specificationId never needs a
+// nullable NSNumber argument (RN rejects non-nonnull NSNumber args).
+RCT_EXTERN_METHOD(placeBid:(NSDictionary *)options
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(confirmBidWin:(NSString *)videoId
+                  buyingIds:(NSArray *)buyingIds
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 // addcart-track ④ — token 平台結帳前回報 cart token (POST /sdk/video/addcart/track).
 RCT_EXTERN_METHOD(reportCartTrack:(NSString *)shopId
                   buyNo:(NSString *)buyNo

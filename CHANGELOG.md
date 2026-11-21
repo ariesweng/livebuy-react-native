@@ -11,6 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.13.0] - 2026-11-21
+
+> **core，minor，源碼面無 BREAKING（只加不減）。** 原生依賴升至 iOS `~> 4.32`／Android `4.32.0`（`bridge-native-pin-4-32-0-core`；
+> bridge 呼叫的新原生 API 只存在於 `4.32.0`）。同步發 `livebuy-react-native-ui` `1.16.0`、`livebuy-react-native-reference-ui` `1.18.0`。
+> 🔴 下標需要後端 `sdk-live-bid`；發版當下（2026-11-21）正式機尚未部署，部署前搶購場直播中下標會失敗（drop-in 顯示「搶購失敗，請稍後再試」）。
+>
+> **驗證範圍**：`npm run typecheck`、`npx jest` 通過；iOS／Android bridge 原生碼已對已發佈 `4.32.0` 編譯。**未經真機實測。**
+
+### Added
+
+- **搶購下標模式**（`live-bid-rn-core`、`live-bid-parity-align-rn-core`，對齊 iOS／Android core）：
+  - `LivebuySDK.placeBid({videoId, goodsId, specificationId?, num})`、`LivebuySDK.confirmBidWin(videoId, ids)`（數字或字串皆可，非整數略過）。
+  - 通知型事件 `BID_PLACE_RESULT`、`BID_WON`（`LBBidPlaceResultParams`／`LBBidWonParams`）；`LBCartAddRequestParams` 新增
+    `cart_origin`、`buying_id`、`shop_cart_synced`（`shop_cart_synced=true` 時 host 應忽略，不要重複入車）。
+  - `LBProduct`／`LBSpec.saleKeyword`。聊天室「關鍵字＋數量」自動下標、得標自動取單都在原生 core 內。
+  - Android bridge 的搶購 id 以 64 位元讀寫。
+- **搶購場欄位**（`flash-sale-goods-fields-rn-core`）：`LBProduct`／`LBSpec` 的 `buyingNum`、`totalBuyingNum`、`limitNum`；
+  `LBPlayerChannelInfo.saleKeywordRequired`。⚠️ `LBPlayerChannelInfo` 新增的是必填欄位，host 若自己手寫這個型別的物件
+  （不是從 `onChannelChange` 拿）需補上。
+
+### Changed
+
+- ⚠️ `LivebuySDK.addToCart` 在尚未 configure 時的 reject code 由 `LB_ERROR` 改為 `NOT_CONFIGURED`，與其他方法一致；其他錯誤不變。
+  新方法未 configure 時同樣 reject `NOT_CONFIGURED`。
+
 ## [2.12.2] - 2026-10-16
 
 > **core，patch，無 BREAKING。** 只改 iOS bridge 原生碼與 JS 送 command 的參數數量，公開 API 不變，原生依賴維持 iOS／Android `4.30.0`。

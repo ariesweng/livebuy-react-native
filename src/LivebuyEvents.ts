@@ -53,7 +53,8 @@ export interface LBCheckoutCompletedParams {
  * OWN cart and (best-effort) reports the cart token via `reportCartTrack`.
  * Mirrors the native enriched params.
  *
- * **兩種觸發來源**（`award-product-auto-cart`）：
+ * **三種觸發來源**（`award-product-auto-cart`、`live-bid`；含 live-bid 的原生 core 以
+ * {@link LBCartAddRequestParams.cart_origin} 標示 `'normal'` / `'award'` / `'bid_won'`）：
  *
  * 1. **使用者手動加購** —— host / template 呼叫 `LivebuySDK.addToCart(...)`。此時
  *    `award_winner_id` **整個省略**。
@@ -63,8 +64,12 @@ export interface LBCheckoutCompletedParams {
  *    自己再加一次，否則會重複加購）。此時本事件多帶 {@link
  *    LBCartAddRequestParams.award_winner_id}，供 host 識別「這筆是獎品」並串回稍早的
  *    `AWARD_CLAIM_RESULT`。discount 型獎品**不會**觸發加購。
+ * 3. **搶購得標自動取單**（live-bid）—— 原生 Player 發現新的得標紀錄並取單（`bidorder`）成功時派發，
+ *    `cart_origin === 'bid_won'`，另帶 {@link LBCartAddRequestParams.buying_id} 與
+ *    {@link LBCartAddRequestParams.shop_cart_synced}；之後緊接著派 `BID_WON(status='ordered')`。
+ *    `shop_cart_synced === true` 時 host 不要再加入自家購物車（商城端已有這筆）。
  *
- * 事件序列為 `AWARD_CLAIM_RESULT`（先，`status='claimed'`）→ `CART_ADD_REQUEST`（後）。
+ * 獎品路徑的事件序列為 `AWARD_CLAIM_RESULT`（先，`status='claimed'`）→ `CART_ADD_REQUEST`（後）。
  * 加購失敗時 SDK **不派任何事件**（沿用既有 addcart 失敗規則），故 host 收到
  * `AWARD_CLAIM_RESULT(status='claimed', award_type='product')` 卻**未**收到配對的
  * `CART_ADD_REQUEST`，即代表該獎品未進入結帳清單。
@@ -121,6 +126,23 @@ export interface LBCartAddRequestParams {
    * 退化為 `0`。目前沒有已知呼叫端會傳入非空值（保留給未來擴充）。
    */
   position?: number;
+  /**
+   * 加購來源（live-bid-rn-core，parity iOS / Android live-bid core）。含 live-bid 的原生 core 每筆都帶：
+   * 一般加購 `'normal'`、商品獎品領獎自動加購 `'award'`、搶購得標自動取單 `'bid_won'`。型別為 optional，
+   * 因為舊版原生 core 不帶此 key（缺 key ≠ `'normal'`，host 視為「來源未知」）；未知的新值原樣透傳。
+   */
+  cart_origin?: 'normal' | 'award' | 'bid_won' | string;
+  /**
+   * 搶購登記 id（與 `BID_WON.buying_id` 同值，字串）——**僅** `cart_origin === 'bid_won'` 時出現；
+   * 其他加購整個省略此 key（`undefined`，MUST NOT 退成 `''`）。
+   */
+  buying_id?: string;
+  /**
+   * **僅** `cart_origin === 'bid_won'` 時出現。`true` 表示商城端購物車已經有這筆（直播管家、168money），
+   * host **應忽略本事件、不要再加入自家購物車**；`false` 表示 host 照一般加購處理。其他加購整個省略此 key
+   * （`undefined`，MUST NOT 退成 `false`——缺 key 代表「不是得標加購」）。168money 得標時 `buy_no` 為 `''`。
+   */
+  shop_cart_synced?: boolean;
 }
 /**
  * `AUTH_REQUIRED` params（event-progress-timestamp-core RN parity）。
@@ -246,6 +268,67 @@ export interface LBWinReceivedParams {
   award_type: string;
   award_name: string;
   award_code: string;
+}
+
+/**
+ * `BID_PLACE_RESULT` 下標結果通知的 params（live-bid-rn-core，parity iOS / Android live-bid core）。
+ * 原生 core 在 `placeBid`（含聊天室「關鍵字＋數量」自動下標）**送出請求後**派發；訪客被擋下（改派
+ * `AUTH_REQUIRED`）、同一商品規格的下標仍在進行中、SDK 未 configure 時不派。
+ *
+ * - `status`：`'placed'`（成功，帶 `buying_id`）或 `'failed'`（後端有回時帶 `backend_error_code`；
+ *   `purchase_limit_exceeded` 另帶 `limit_num` / `buying_num`）。
+ * - `specification_id` 無規格時為 `''`（key 恆在）；`is_keyword` 表示是否由聊天關鍵字觸發。
+ * - 選填 key 沒有值時**整個省略**（`undefined`），不以 `''` / `0` 佔位。
+ *
+ * 註：native bridge 對 `params` 採整包泛型透傳（無 per-key allowlist），RN 沒有本事件的 emit 程式碼；
+ * 此 interface 僅為編譯期型別 / 文件。
+ */
+export interface LBBidPlaceResultParams {
+  status: 'placed' | 'failed' | string;
+  video_id: string;
+  product_id: string;
+  /** 規格 id；無規格為 `''`。 */
+  specification_id: string;
+  num: number;
+  is_keyword: boolean;
+  /** 搶購登記 id（字串）；僅 `placed` 時出現。 */
+  buying_id?: string;
+  /** 後端原樣錯誤代碼；僅 `failed` 且後端有回時出現。 */
+  backend_error_code?: string;
+  /** 限購數量；僅 `backend_error_code === 'purchase_limit_exceeded'` 且後端有回時出現。 */
+  limit_num?: number;
+  /** 已購（已下標）數量；出現條件同 `limit_num`。 */
+  buying_num?: number;
+}
+
+/**
+ * `BID_WON` 得標通知的 params（live-bid-rn-core，parity iOS / Android live-bid core）。原生 Player 自動取單
+ * （`bidorder`）有結果時派發，供 host 顯示「恭喜搶購成功」；觀眾確認後 host 呼叫
+ * `LivebuySDK.confirmBidWin`。同一 `buying_id` 每支影片只派一次。
+ *
+ * - `status === 'ordered'`：取單成功，帶 `shop_cart_synced`，有單號時帶 `buy_no`；同一筆會**先**派
+ *   `cart_origin === 'bid_won'` 的 `CART_ADD_REQUEST`。
+ * - `status === 'failed'`：帶 `backend_error_code`（有值時），不派 `CART_ADD_REQUEST`。
+ * - `specification_id` 無規格時為 `''`。選填 key 沒有值時整個省略。
+ *
+ * 註：同 {@link LBBidPlaceResultParams}，bridge 泛型透傳，此 interface 僅為編譯期型別 / 文件。
+ */
+export interface LBBidWonParams {
+  status: 'ordered' | 'failed' | string;
+  video_id: string;
+  buying_id: string;
+  product_id: string;
+  /** 規格 id；無規格為 `''`。 */
+  specification_id: string;
+  /** 得標商品名稱（含規格，例如 `A(紅)`）。 */
+  name: string;
+  num: number;
+  /** 建單編號；僅 `ordered` 且非空時出現。 */
+  buy_no?: string;
+  /** 僅 `ordered` 時出現；`true` 表示商城端購物車已有這筆，host 不要再加入自家購物車。 */
+  shop_cart_synced?: boolean;
+  /** 後端原樣錯誤代碼；僅 `failed` 且有值時出現。 */
+  backend_error_code?: string;
 }
 
 /**
@@ -515,6 +598,9 @@ export interface LBSdkEventParamsMap {
   AWARD_CLAIM_RESULT: LBAwardClaimResultParams;
   // rn-winreceived-typed-params-core — WIN_RECEIVED 完整 winner（扁平 snake_case）
   WIN_RECEIVED: LBWinReceivedParams;
+  // live-bid-rn-core — 搶購下標結果 / 得標通知（扁平 snake_case，原生 core 派發、bridge 泛型透傳）
+  BID_PLACE_RESULT: LBBidPlaceResultParams;
+  BID_WON: LBBidWonParams;
   // active-event-host-facing-exposure-rn-core — ACTIVE_EVENT_STARTED 進行中活動（扁平、keyword 選填、不含 stayTime）
   ACTIVE_EVENT_STARTED: LBActiveEventStartedParams;
   // view-cart-event-rn-core

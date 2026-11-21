@@ -45,7 +45,8 @@ import tv.livebuy.sdk.player.VideoInfoPanel
  * rn-moment-products-bridge-core added products/narratingProduct;
  * rn-viewer-count-bridge-core added viewerCount;
  * rn-endscreen-next-bridge-core added next; rn-channel-notice-bridge-core added
- * notice/sysNotice). Deliberately NOT a whole-[LBChannel] comparison — `LBChannel`
+ * notice/sysNotice; flash-sale-goods-fields-rn-core added saleKeywordRequired).
+ * Deliberately NOT a whole-[LBChannel] comparison — `LBChannel`
  * carries many more fields (goods, nav, spec, watchNum, …) that have no bearing on
  * this projection; comparing the full model would re-fire on changes this event
  * doesn't even carry, while comparing nothing at all (always emitting) would spam
@@ -85,6 +86,12 @@ private data class ChannelInfoSnapshot(
     // still included here defensively, following the existing pattern for every
     // other projected field.
     val isFlashSale: Boolean,
+    // flash-sale-goods-fields-rn-core — additive. Must stay in sync with the projected
+    // `sale_keyword_required` key, otherwise the dedupe path would miss a
+    // saleKeywordRequired-only change. (Product/spec `buyingNum`/`totalBuyingNum`/`limitNum`
+    // need no extra field: `products`/`narratingProduct` below compare the `LBProduct` /
+    // `LBSpec` data classes structurally, which already includes them.)
+    val saleKeywordRequired: Boolean,
     // rn-guest-comment-channel-bridge-core — additive. Must stay in sync with
     // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange dedupe path
     // would miss a guestComment-only change. UNLIKE isFlashSale's purely-theoretical
@@ -149,6 +156,7 @@ private data class ChannelInfoSnapshot(
             type = channel.type,
             shopIntro = channel.shop.intro,
             isFlashSale = channel.isFlashSale,
+            saleKeywordRequired = channel.saleKeywordRequired,
             guestComment = channel.guestComment,
             products = products,
             narratingProduct = narratingProduct,
@@ -675,6 +683,12 @@ private fun lbProductFromMap(map: ReadableMap?): LBProduct? {
         // key is absent — no extra fallback needed, letting a host simulate an
         // `other_goods[]`-sourced product via a `simulate*` call.
         videoId = map.getString("videoId"),
+        // live-bid-rn-core: missing-key tolerant, same default as LBProduct's own constructor.
+        saleKeyword = readSaleKeyword(map),
+        // flash-sale-goods-fields-rn-core: missing / null / non-numeric → 0 (LBProduct's own default).
+        buyingNum = readInt(map, "buyingNum") ?: 0,
+        totalBuyingNum = readInt(map, "totalBuyingNum") ?: 0,
+        limitNum = readInt(map, "limitNum") ?: 0,
     )
 }
 
@@ -690,8 +704,18 @@ private fun lbSpecFromMap(map: ReadableMap?): LBSpec? {
         originalPriceShow = map.getString("originalPriceShow") ?: "",
         stock = readInt(map, "stock") ?: 0,
         photos = readStringList(map, "photos"),
+        saleKeyword = readSaleKeyword(map),
+        buyingNum = readInt(map, "buyingNum") ?: 0,
+        totalBuyingNum = readInt(map, "totalBuyingNum") ?: 0,
+        limitNum = readInt(map, "limitNum") ?: 0,
     )
 }
+
+// live-bid-rn-core: `saleKeyword` — absent / null / non-string → "" (the core model default).
+private fun readSaleKeyword(map: ReadableMap): String =
+    if (map.hasKey("saleKeyword") && map.getType("saleKeyword") == ReadableType.String) {
+        map.getString("saleKeyword") ?: ""
+    } else ""
 
 // MARK: - product-bridge-data-core ReadableMap coercion helpers
 //

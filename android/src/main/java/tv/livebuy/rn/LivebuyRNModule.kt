@@ -881,8 +881,95 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                 // reject code so the JS `LivebuySDK.addToCart` can surface the typed LBError and
                 // branch needs-login (401) vs a genuine failure (cart-needs-login-vs-failure).
                 promise.rejectWithBackendCode(e.code.toString(), e.message ?: "addToCart failed", e)
+            } catch (e: IllegalStateException) {
+                // live-bid-parity-align-rn-core: not configured → NOT_CONFIGURED, like every other method.
+                promise.rejectWithBackendCode("NOT_CONFIGURED", "configure() not yet called", e)
             } catch (t: Throwable) {
                 promise.rejectWithBackendCode("LB_ERROR", t.message ?: "addToCart failed", t)
+            }
+        }
+    }
+
+    // MARK: - Flash-sale bid (live-bid-rn-core, parity Android live-bid-android-core)
+
+    /**
+     * 搶購場下標。委派 `LivebuySDK.placeBid(videoId, goodsId, specificationId, num)`（原生 core 打
+     * `POST /sdk/video/bid`、派 `BID_PLACE_RESULT`；RN 不自建 HTTP）。`specificationId` 缺 key / null →
+     * `null`（原生不送 `specification_id`）。Reject code 與 [addToCart] 同一套，供 JS
+     * `toTypedBridgeRejection` 轉 typed `LBError`：在途防重複 → `cart_add_deduplicated`；`ServerError` →
+     * 其 inner code（`401` 訪客、`500` 業務錯誤）；未 configure（`IllegalStateException`）→
+     * `NOT_CONFIGURED`；其他 → `LB_ERROR`。後端 `error_code` 經 [rejectWithBackendCode] 放進
+     * `userInfo.backendErrorCode`。
+     */
+    @ReactMethod
+    fun placeBid(options: ReadableMap, promise: Promise) {
+        val videoId = if (options.hasKey("videoId")) options.getString("videoId") else null
+        if (videoId == null || !options.hasKey("goodsId") || options.isNull("goodsId") ||
+            !options.hasKey("num") || options.isNull("num")
+        ) {
+            promise.reject("LB_ERROR", "placeBid requires videoId, goodsId and num")
+            return
+        }
+        val goodsId = options.getInt("goodsId")
+        val num = options.getInt("num")
+        val specificationId =
+            if (options.hasKey("specificationId") && !options.isNull("specificationId")) {
+                options.getInt("specificationId")
+            } else null
+        bridgeScope.launch {
+            try {
+                val result = LivebuySDK.placeBid(
+                    videoId = videoId,
+                    goodsId = goodsId,
+                    specificationId = specificationId,
+                    num = num,
+                )
+                promise.resolve(WritableNativeMap().apply {
+                    // live-bid-parity-align-rn-core: buying_id is a 64-bit backend id → JS number (double).
+                    putDouble("buyingId", result.buyingId.toDouble())
+                    putInt("goodsId", result.goodsId)
+                    putInt("specificationId", result.specificationId)
+                    putInt("num", result.num)
+                })
+            } catch (e: LBError.CartAddDeduplicated) {
+                promise.rejectWithBackendCode("cart_add_deduplicated", "Bid already in flight for this product / spec.", e)
+            } catch (e: LBError.ServerError) {
+                promise.rejectWithBackendCode(e.code.toString(), e.message ?: "placeBid failed", e)
+            } catch (e: IllegalStateException) {
+                promise.rejectWithBackendCode("NOT_CONFIGURED", "configure() not yet called", e)
+            } catch (t: Throwable) {
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "placeBid failed", t)
+            }
+        }
+    }
+
+    /**
+     * 得標確認。委派 `LivebuySDK.confirmBidWin(videoId, buyingIds: List<Int>)`
+     * （`POST /sdk/video/bidconfirm`，不派事件）。JS 端已用 `normalizeBuyingIds` 過濾成整數；空陣列 JS 不會
+     * 呼叫到這裡。Resolve `[{buyingId, errorCode}]`（`errorCode == null` → JS `null`），順序同回應。
+     * Reject code 規則同 [placeBid]。
+     */
+    @ReactMethod
+    fun confirmBidWin(videoId: String, buyingIds: ReadableArray, promise: Promise) {
+        // live-bid-parity-align-rn-core: 64-bit ids (backend bigint) — read as double, not getInt.
+        val ids: List<Long> = (0 until buyingIds.size()).map { buyingIds.getDouble(it).toLong() }
+        bridgeScope.launch {
+            try {
+                val items = LivebuySDK.confirmBidWin(videoId, ids)
+                promise.resolve(WritableNativeArray().apply {
+                    items.forEach { item ->
+                        pushMap(WritableNativeMap().apply {
+                            putDouble("buyingId", item.buyingId.toDouble())
+                            item.errorCode?.let { putString("errorCode", it) } ?: putNull("errorCode")
+                        })
+                    }
+                })
+            } catch (e: LBError.ServerError) {
+                promise.rejectWithBackendCode(e.code.toString(), e.message ?: "confirmBidWin failed", e)
+            } catch (e: IllegalStateException) {
+                promise.rejectWithBackendCode("NOT_CONFIGURED", "configure() not yet called", e)
+            } catch (t: Throwable) {
+                promise.rejectWithBackendCode("LB_ERROR", t.message ?: "confirmBidWin failed", t)
             }
         }
     }
@@ -1058,6 +1145,12 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
         putArray("specifications", specArray(product.specifications))
         putArray("specOptions", specOptionArray(product.specOptions))
         product.videoId?.let { putString("videoId", it) }
+        // live-bid-rn-core: 搶購關鍵字（恆帶，可能為 ""）。
+        putString("saleKeyword", product.saleKeyword)
+        // flash-sale-goods-fields-rn-core: 本人已搶購數／全場合計／每人限購（恆帶，缺值時原生為 0）。
+        putInt("buyingNum", product.buyingNum)
+        putInt("totalBuyingNum", product.totalBuyingNum)
+        putInt("limitNum", product.limitNum)
     }
 
     // vod-narrating-products-core-rn: array-of-products serialization, reused by
@@ -1087,6 +1180,12 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
                     putString("originalPriceShow", spec.originalPriceShow)
                     putInt("stock", spec.stock)
                     putArray("photos", stringArray(spec.photos))
+                    // live-bid-rn-core: 規格層搶購關鍵字（恆帶，可能為 ""）。
+                    putString("saleKeyword", spec.saleKeyword)
+                    // flash-sale-goods-fields-rn-core: 規格層搶購數量（恆帶，缺值時原生為 0）。
+                    putInt("buyingNum", spec.buyingNum)
+                    putInt("totalBuyingNum", spec.totalBuyingNum)
+                    putInt("limitNum", spec.limitNum)
                 })
             }
         }
@@ -1175,6 +1274,10 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             // — `= upstream sale_type==2`, always present, independent of
             // `type`/`live_status`; raw passthrough, not interpreted here.
             putBoolean("is_flash_sale", channel.isFlashSale)
+            // flash-sale-goods-fields-rn-core — additive. Top-level `LBChannel.saleKeywordRequired`
+            // (`sale_keyword_required`): 直播管家搶購場為 true，商品 `saleKeyword` 為空時下游隱藏加購鈕。
+            // Raw passthrough, not interpreted here.
+            putBoolean("sale_keyword_required", channel.saleKeywordRequired)
             // rn-guest-comment-channel-bridge-core — additive. Guest-comment send gate
             // (`0`/`1`, REVERSE semantics: 0 = restricted to logged-in members). Raw
             // passthrough of `channel.guestComment`; feeds `chatEnabled`/`guestEditAvailable`
