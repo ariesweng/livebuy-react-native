@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Rational
+import androidx.core.app.OnPictureInPictureModeChangedProvider
+import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.util.Consumer
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
@@ -36,7 +39,7 @@ import tv.livebuy.sdk.player.PiPHelper
 import tv.livebuy.sdk.player.VideoInfoPanel
 
 /**
- * Narrow, structurally-equal (Kotlin `data class`) snapshot of ONLY the 20 fields
+ * Narrow, structurally-equal (Kotlin `data class`) snapshot of ONLY the fields
  * `LBPlayerChannelInfo` projects (rb-react-native-subtitle-channel-info-bridge-core
  * §momentState dedupe; player-channel-chrome-fields-core-rn added
  * shopName/shopLogo/shareUrl; channel-type-bridge-core-rn added type;
@@ -45,7 +48,8 @@ import tv.livebuy.sdk.player.VideoInfoPanel
  * rn-moment-products-bridge-core added products/narratingProduct;
  * rn-viewer-count-bridge-core added viewerCount;
  * rn-endscreen-next-bridge-core added next; rn-channel-notice-bridge-core added
- * notice/sysNotice; flash-sale-goods-fields-rn-core added saleKeywordRequired).
+ * notice/sysNotice; flash-sale-goods-fields-rn-core added saleKeywordRequired;
+ * channel-shop-id-bridge-core-rn added shopId).
  * Deliberately NOT a whole-[LBChannel] comparison — `LBChannel`
  * carries many more fields (goods, nav, spec, watchNum, …) that have no bearing on
  * this projection; comparing the full model would re-fire on changes this event
@@ -79,6 +83,10 @@ private data class ChannelInfoSnapshot(
     // dedupe path would miss a shopIntro-only change (e.g. a merchant editing
     // their shop intro text mid-LIVE while liveStatus/type stay unchanged).
     val shopIntro: String,
+    // channel-shop-id-bridge-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss a shopId-only change.
+    val shopId: String,
     // channel-flash-sale-flag-core-rn — additive. Must stay in sync with
     // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
     // dedupe path would miss an isFlashSale-only change. In practice this field
@@ -155,6 +163,7 @@ private data class ChannelInfoSnapshot(
             shareUrl = channel.shareUrl,
             type = channel.type,
             shopIntro = channel.shop.intro,
+            shopId = channel.shop.id,
             isFlashSale = channel.isFlashSale,
             saleKeywordRequired = channel.saleKeywordRequired,
             guestComment = channel.guestComment,
@@ -322,6 +331,8 @@ internal class LivebuyPlayerViewManager(
      *  2. API 26–30 → best-effort `onActivityStopped` → `requestAutoPiP()` (documented limitation).
      *  3. consume `PIP_STATE_CHANGE(requested=true)` → main-thread `PiPHelper.enterPiP(activity)`.
      *  4. register an opt-in `onUserLeaveHint` forward (host升級 API 26–30 為可靠).
+     *  5. forward the Activity's system-confirmed PiP mode changes into the view
+     *     (rn-android-pip-mode-auto-forward-core) when the Activity is a ComponentActivity.
      * All decisions route through the pure [AutoPipPolicy]; the returned [AutoPipWiring] retains
      * every registration for [onDropViewInstance] cleanup.
      */
@@ -412,8 +423,28 @@ internal class LivebuyPlayerViewManager(
         val userLeaveForward: () -> Unit = { view.requestAutoPiP() }
         LivebuyPiPUserLeaveHint.register(userLeaveForward)
 
+        // (5) rn-android-pip-mode-auto-forward-core: Android delivers the system-confirmed PiP
+        // entry/exit ONLY to the owning Activity, and core's
+        // LivebuyPlayerView.notifyPictureInPictureModeChanged is the single dispatch point of
+        // the system-confirmed PIP_STATE_CHANGE(active=…). RN JS never sees the Activity
+        // callback, so before this nobody forwarded it (JS only ever got the requestAutoPiP
+        // "requested" signal, and reference-ui never hid its chrome in PiP). A ComponentActivity
+        // (RN's ReactActivity is one) exposes a listener API for exactly this callback; any
+        // other Activity is skipped and the host keeps the manual command as the fallback.
+        val pipModeForwarder = PipModeForwarder(view, mainHandler)
+        val pipModeProvider = activity as? OnPictureInPictureModeChangedProvider
+        val pipModeListener: Consumer<PictureInPictureModeChangedInfo>? =
+            if (AutoPipPolicy.shouldAutoForwardPipMode(pipModeProvider != null) && pipModeProvider != null) {
+                Consumer<PictureInPictureModeChangedInfo> { info ->
+                    pipModeForwarder.forward(info.isInPictureInPictureMode)
+                }.also { pipModeProvider.addOnPictureInPictureModeChangedListener(it) }
+            } else {
+                null
+            }
+
         return AutoPipWiring(
             view, activity, token, listener, lifecycleCallbacks, userLeaveForward, armedAutoEnter,
+            pipModeForwarder, pipModeProvider, pipModeListener,
         )
     }
 
@@ -436,6 +467,31 @@ internal class LivebuyPlayerViewManager(
     }
 
     /**
+     * Per-view forwarder of system-confirmed PiP mode into core's
+     * `LivebuyPlayerView.notifyPictureInPictureModeChanged` (rn-android-pip-mode-auto-forward-core).
+     * Core does not dedupe (each call dispatches `PIP_STATE_CHANGE`), so this remembers the last
+     * forwarded value and forwards only a change ([AutoPipPolicy.shouldForwardPipMode]) — both the
+     * Activity listener and the manual RN command funnel through it. Always runs on the main
+     * thread (the Activity callback and RN view commands already do; anything else is posted).
+     */
+    private class PipModeForwarder(
+        private val view: LivebuyPlayerView,
+        private val mainHandler: Handler,
+    ) {
+        private var lastForwarded = false
+
+        fun forward(isInPictureInPictureMode: Boolean) {
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                mainHandler.post { forward(isInPictureInPictureMode) }
+                return
+            }
+            if (!AutoPipPolicy.shouldForwardPipMode(lastForwarded, isInPictureInPictureMode)) return
+            lastForwarded = isInPictureInPictureMode
+            view.notifyPictureInPictureModeChanged(isInPictureInPictureMode)
+        }
+    }
+
+    /**
      * Retains + tears down one view's auto-PiP wiring (rn-android-auto-pip-entry). [listener] is
      * held strongly here because core's `addEventListener` keeps only a WEAK reference.
      *
@@ -453,9 +509,15 @@ internal class LivebuyPlayerViewManager(
         private val lifecycleCallbacks: Application.ActivityLifecycleCallbacks,
         private val userLeaveForward: () -> Unit,
         private val armedAutoEnter: Boolean,
+        val pipModeForwarder: PipModeForwarder,
+        private val pipModeProvider: OnPictureInPictureModeChangedProvider?,
+        private val pipModeListener: Consumer<PictureInPictureModeChangedInfo>?,
     ) {
         fun dispose() {
             view.removeEventListener(token)
+            if (pipModeProvider != null && pipModeListener != null) {
+                pipModeProvider.removeOnPictureInPictureModeChangedListener(pipModeListener)
+            }
             activity.application.unregisterActivityLifecycleCallbacks(lifecycleCallbacks)
             LivebuyPiPUserLeaveHint.unregister(userLeaveForward)
             // Undo ONLY the bridge's own arm (never host-owned params); decision is the pure,
@@ -565,8 +627,17 @@ internal class LivebuyPlayerViewManager(
             // seam exposed by android-view-mode-pip-forward-core (7f3b053d). Android-
             // only — the JS ref guards Platform.OS === 'android', so this command
             // never dispatches on iOS (mirrors the setMuted boolean-arg read).
-            "notifyPictureInPictureModeChanged" ->
-                view.notifyPictureInPictureModeChanged(args!!.getBoolean(0))
+            //
+            // rn-android-pip-mode-auto-forward-core: when the bridge already auto-forwards from
+            // the host ComponentActivity, the manual command goes through the SAME per-view
+            // forwarder so a host that still forwards manually does not double-dispatch
+            // PIP_STATE_CHANGE. No wiring (no Activity at mount) → forward straight to core.
+            "notifyPictureInPictureModeChanged" -> {
+                val isInPiP = args!!.getBoolean(0)
+                val forwarder = pipWirings[view]?.pipModeForwarder
+                if (forwarder != null) forwarder.forward(isInPiP)
+                else view.notifyPictureInPictureModeChanged(isInPiP)
+            }
 
             // MARK: - Sub-component simulate* commands (expand-simulate-bridge-parity)
 

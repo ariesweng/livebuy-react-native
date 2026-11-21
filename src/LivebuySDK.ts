@@ -799,6 +799,14 @@ export interface LBPlayerChannelInfo {
    */
   shopIntro: string;
   /**
+   * The channel's merchant id (`channel.shop.id`, wire key `shop_id`). Kept as a
+   * `string` (parity with `LBShop.id` on iOS / Android and the SDK-wide
+   * "ids are strings" convention). `""` when absent (older native binary).
+   * Lets the drop-in use the playing video's shop as the add-to-cart `shopId`
+   * instead of the `configure` shop id (channel-shop-id-bridge-core-rn).
+   */
+  shopId: string;
+  /**
    * Whether the channel is a flash sale (`channel.isFlashSale`, wire key
    * `is_flash_sale` — a top-level `LBChannel` field, NOT nested under
    * `channel.shop`). Semantics: `= upstream sale_type==2`, always present on
@@ -916,6 +924,9 @@ export interface LBPlayerChannelInfo {
  *   - string fields (`publish_at` / `cover` / `start` / `title` / `service_link` /
  *     `subtitle_url` / `shop_name` / `shop_logo` / `share_url` / `shop_intro` /
  *     `notice` / `sys_notice`): missing / null → `""`.
+ *   - `shop_id`: a string passes through; a finite Number is tolerated and turned
+ *     into its decimal string; missing / null / anything else → `""` — see
+ *     {@link coerceShopId} (channel-shop-id-bridge-core-rn).
  *   - `live_status`: Number OR a stringified Int is tolerated; missing → `-1` (unknown).
  *   - `is_subtitle`: Number OR a stringified Int is tolerated; missing / unparseable →
  *     `0` (no subtitle) — see {@link coerceIsSubtitle}.
@@ -966,6 +977,7 @@ export function mapPlayerChannelInfo(wire: {
   share_url?: string | null;
   type?: number | string | null;
   shop_intro?: string | null;
+  shop_id?: string | number | null;
   is_flash_sale?: boolean | number | string | null;
   sale_keyword_required?: boolean | number | string | null;
   guest_comment?: number | string | null;
@@ -992,6 +1004,7 @@ export function mapPlayerChannelInfo(wire: {
     shareUrl: wire.share_url ?? '',
     type: coerceChannelType(wire.type),
     shopIntro: wire.shop_intro ?? '',
+    shopId: coerceShopId(wire.shop_id),
     isFlashSale: coerceIsFlashSale(wire.is_flash_sale),
     saleKeywordRequired: coerceSaleKeywordRequired(wire.sale_keyword_required),
     guestComment: coerceGuestComment(wire.guest_comment),
@@ -1082,6 +1095,18 @@ function coerceChannelType(value: number | string | null | undefined): number {
     return Number.isNaN(n) ? -1 : n;
   }
   return -1;
+}
+
+/**
+ * Coerce a wire `shop_id` to a string (channel-shop-id-bridge-core-rn). Both
+ * native bridges emit `LBShop.id` as a String; a finite Number is tolerated
+ * defensively (in case a numeric id ever reaches the wire) and turned into its
+ * decimal string. Missing / null / anything else → `""`.
+ */
+function coerceShopId(value: string | number | null | undefined): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '';
 }
 
 /**

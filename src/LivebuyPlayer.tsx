@@ -365,12 +365,17 @@ export interface LivebuyPlayerCoreRef {
    * confirmation into the wrapped native player view
    * (rn-android-pip-mode-forward-core).
    *
-   * **Android-only / View-mode host responsibility.** Android delivers the PiP
-   * entry/exit confirmation callback ONLY to the Activity that owns it — an
-   * RN-embedded native `LivebuyPlayerView` cannot observe
-   * `Activity.onPictureInPictureModeChanged`. Call this from your host
-   * `Activity.onPictureInPictureModeChanged` override (after `super`) so
-   * PiP-dependent SDK behaviour works:
+   * **Android-only, fallback.** Android delivers the PiP entry/exit
+   * confirmation callback ONLY to the Activity that owns it. When that Activity
+   * is an `androidx.activity.ComponentActivity` (RN's `ReactActivity` is one),
+   * the Android bridge forwards it automatically
+   * (rn-android-pip-mode-auto-forward-core) and you do not need to call this.
+   * Call it from your host `Activity.onPictureInPictureModeChanged` override
+   * (after `super`) only when the host Activity is not a `ComponentActivity`.
+   * Calling it as well on a `ReactActivity` does not double-dispatch: the
+   * bridge forwards only a changed value. It drives PiP-dependent SDK
+   * behaviour:
+   *   - the system-confirmed `PIP_STATE_CHANGE` (`active: true/false`);
    *   - watch-time (`person_time` / `person_duration`, sdk-stat-reporting) stops
    *     during PiP (PiP is not foreground watching);
    *   - the IVS live seek-bar / native control chrome stays locked in PiP.

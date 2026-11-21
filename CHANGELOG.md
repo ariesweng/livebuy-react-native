@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.14.0] - 2026-11-22
+
+> **core，minor，源碼面無 BREAKING（只加不減）。** 原生依賴維持 iOS `~> 4.32`／Android `4.32.0`（只改 bridge 原生碼）。
+> 同步發 `livebuy-react-native-ui` `1.17.0`、`livebuy-react-native-reference-ui` `1.19.0`。
+>
+> **驗證範圍**：`npm run typecheck`、`npx jest` 通過；iOS／Android bridge 原生碼已對已發佈 `4.32.0` 編譯；iOS 與 Android 模擬器實測
+> （正式機資料）。**未經真機實測。**
+
+### Added
+
+- `LBPlayerChannelInfo.shopId`：當前頻道的商家 id（`channel-shop-id-bridge-core-rn`；iOS／Android bridge 的 channel-change 帶出
+  `shop_id`，字串或數字皆可，缺值為空字串）。供 drop-in 加入購物車使用播放中影片的商家。⚠️ 新增的是必填欄位，host 若自己手寫這個型別
+  的物件（不是從 `onChannelChange` 拿）需補上。
+
+### Fixed
+
+- **Android 進入畫中畫後播放器控制列不隱藏**（`rn-android-pip-mode-auto-forward-core`）：bridge 之前沒有把系統確認的 PiP 進出轉給
+  core，JS 只收到「已請求」、收不到 `active: true`。現在 host Activity 是 `ReactActivity`（或其他 `ComponentActivity`）時自動轉發，
+  每個 view 去重，同一狀態只派發一次；其他 Activity 仍可手動轉發。
+
 ## [2.13.0] - 2026-11-21
 
 > **core，minor，源碼面無 BREAKING（只加不減）。** 原生依賴升至 iOS `~> 4.32`／Android `4.32.0`（`bridge-native-pin-4-32-0-core`；

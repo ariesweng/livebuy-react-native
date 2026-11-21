@@ -1269,6 +1269,11 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
             // channel-shop-intro-bridge-core-rn — additive. Feeds the player's
             // shop-intro text block; raw passthrough, not interpreted here.
             putString("shop_intro", channel.shop.intro)
+            // channel-shop-id-bridge-core-rn — additive. The channel's merchant id
+            // (`LBShop.id`, String). Lets the RN drop-in use the playing video's
+            // shop as add-to-cart `shopId` (parity with the Android TemplateAttachment
+            // wiring's `channel.shop.id`) instead of the `configure` shop id.
+            putString("shop_id", channel.shop.id)
             // channel-flash-sale-flag-core-rn — additive. Top-level `LBChannel`
             // field (NOT nested under `channel.shop`, unlike `shop_intro` above)
             // — `= upstream sale_type==2`, always present, independent of

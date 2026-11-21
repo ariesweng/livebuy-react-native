@@ -1129,6 +1129,11 @@ final class LivebuyRNBridge: RCTEventEmitter {
             // channel-shop-intro-bridge-core-rn — additive. Feeds the player's
             // shop-intro text block; raw passthrough, not interpreted here.
             "shop_intro": channel.shop.intro,
+            // channel-shop-id-bridge-core-rn — additive. The channel's merchant id
+            // (`LBShop.id`, String). Lets the RN drop-in use the playing video's
+            // shop as add-to-cart `shopId` (parity with iOS `DefaultPlayerTemplate`
+            // `player?.channel?.shop.id`) instead of the `configure` shop id.
+            "shop_id": channel.shop.id,
             // channel-flash-sale-flag-core-rn — additive. Top-level `LBChannel`
             // field (NOT nested under `channel.shop`, unlike `shop_intro` above)
             // — `= upstream sale_type==2`, always present, independent of
@@ -1312,7 +1317,7 @@ private final class BridgeListener: NSObject, LivebuyEventListener {
 
 // MARK: - LivebuyPlayerRNView — UIView wrapping LivebuyPlayerViewController
 
-/// Narrow, `Equatable` snapshot of ONLY the 20 fields `LBPlayerChannelInfo` projects
+/// Narrow, `Equatable` snapshot of ONLY the fields `LBPlayerChannelInfo` projects
 /// (rb-react-native-subtitle-channel-info-bridge-core §momentState dedupe;
 /// player-channel-chrome-fields-core-rn added shopName/shopLogo/shareUrl;
 /// channel-type-bridge-core-rn added type; channel-shop-intro-bridge-core-rn added
@@ -1321,7 +1326,8 @@ private final class BridgeListener: NSObject, LivebuyEventListener {
 /// added products/narratingProduct; rn-viewer-count-bridge-core added viewerCount;
 /// rn-endscreen-next-bridge-core added next;
 /// rn-channel-notice-bridge-core added notice/sysNotice;
-/// flash-sale-goods-fields-rn-core added saleKeywordRequired). Deliberately NOT a
+/// flash-sale-goods-fields-rn-core added saleKeywordRequired;
+/// channel-shop-id-bridge-core-rn added shopId). Deliberately NOT a
 /// whole-`LBChannel` comparison — `LBChannel` carries many more fields (goods, nav,
 /// spec, watchNum, …) that have no bearing on this projection; comparing the full
 /// model would re-fire on changes this event doesn't even carry, while comparing
@@ -1354,6 +1360,10 @@ private struct ChannelInfoSnapshot: Equatable {
     // dedupe path would miss a shopIntro-only change (e.g. a merchant editing
     // their shop intro text mid-LIVE while liveStatus/type stay unchanged).
     let shopIntro: String
+    // channel-shop-id-bridge-core-rn — additive. Must stay in sync with
+    // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
+    // dedupe path would miss a shopId-only change.
+    let shopId: String
     // channel-flash-sale-flag-core-rn — additive. Must stay in sync with
     // LBPlayerChannelInfo's projected fields, otherwise the onMomentStateChange
     // dedupe path would miss an isFlashSale-only change. In practice this field
@@ -1421,6 +1431,7 @@ private struct ChannelInfoSnapshot: Equatable {
         shareUrl = channel.shareUrl
         type = channel.type
         shopIntro = channel.shop.intro
+        shopId = channel.shop.id
         isFlashSale = channel.isFlashSale
         saleKeywordRequired = channel.saleKeywordRequired
         guestComment = channel.guestComment

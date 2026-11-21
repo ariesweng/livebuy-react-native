@@ -76,4 +76,25 @@ object AutoPipPolicy {
      */
     fun shouldResumeOnStart(pausedByThis: Boolean): Boolean =
         pausedByThis
+
+    /**
+     * Whether the bridge should forward a system-confirmed PiP mode value into the wrapped
+     * view's `notifyPictureInPictureModeChanged(...)` (rn-android-pip-mode-auto-forward-core).
+     * Core's method has no dedupe of its own — every call dispatches `PIP_STATE_CHANGE` — so
+     * the bridge forwards only when the value differs from the last one it forwarded. This
+     * keeps the event at exactly one per transition when both the bridge's automatic Activity
+     * listener and a host's manual `notifyPictureInPictureModeChanged` command deliver the same
+     * transition. `lastForwarded` starts at `false` (a freshly created view is not in PiP).
+     */
+    fun shouldForwardPipMode(lastForwarded: Boolean, isInPictureInPictureMode: Boolean): Boolean =
+        lastForwarded != isInPictureInPictureMode
+
+    /**
+     * Whether the bridge can observe the host Activity's PiP mode changes on its own: only an
+     * Activity implementing `androidx.core.app.OnPictureInPictureModeChangedProvider`
+     * (`androidx.activity.ComponentActivity` and subclasses, incl. RN's `ReactActivity`).
+     * Otherwise the host keeps forwarding manually via the existing command.
+     */
+    fun shouldAutoForwardPipMode(isPipModeChangedProvider: Boolean): Boolean =
+        isPipModeChangedProvider
 }
