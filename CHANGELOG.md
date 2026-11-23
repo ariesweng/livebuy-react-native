@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.15.1] - 2026-11-24
+
+> **core，patch，無 BREAKING、公開 API 與 wire shape 不變。** 原生依賴：Android `4.33.0` → `4.33.1`；iOS podspec 維持 `~> 4.33`
+> （`rn-android-pin-4-33-1-core`；見 `docs/release-notes/v4.33.1.md`）。
+> 同步發 `livebuy-react-native-ui` `1.18.2`（純 metadata，peer 對齊）；`livebuy-react-native-reference-ui` 維持 `1.19.1`（peer `^1.17.0` 已涵蓋 `1.18.2`）。
+>
+> **iOS**：本版不改 iOS bridge，podspec 仍是 `~> 4.33`。iOS `4.33.1`（修直播暫停後按播放鈕無效）已於 2026-11-24 發佈；
+> 更新 Podfile 的 `LivebuySDK` `:podspec =>` URL 指向 `v4.33.1` 即可取得，不必再升 RN 套件。
+>
+> **驗證範圍**：`npm run typecheck`、`npx jest`（834）通過。**Android 模擬器與真機實測未做。**
+
+### Fixed
+
+- 原生依賴：Android `tv.livebuy:livebuy:4.33.0` → `4.33.1`（`rn-android-pin-4-33-1-core`）。Android `4.33.1` 修正 `togglePlayPause`：
+  改依播放意圖決定方向，暫停後（宿主 `pause()`、自動子母畫面 fallback 暫停、App 進背景、片頭期間）第一次按播放鈕就會播放，
+  不再要按兩下。零 public 符號變動；iOS podspec 維持 `~> 4.33`（已涵蓋）。
+
 ## [2.15.0] - 2026-11-23
 
 > **core，minor，無 BREAKING 公開符號（只新增 `resumeAfterIntercept`）、但含預設行為改變（見下方 ⚠️）。** 原生依賴升為
@@ -25,8 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > ⚠️ core `2.15.0` 需要原生 iOS／Android **`4.33.0`**——以 CocoaPods 消費的 host，Podfile 的 `LivebuySDK` `:podspec =>` URL 必須指向
 > `v4.33.0`（或更新）的 release，否則 `pod install` 會因不滿足 `~> 4.33` 而失敗。
 >
-> **驗證範圍**：`npm run typecheck`、`npx jest`（834）通過；RN 範例 App iOS 模擬器實測三情境（商品頁、登入完成與取消、客服）
-> 通過（`759a0d6ad`）。**Android 模擬器與真機實測未做。**
+> **驗證範圍**：`npm run typecheck`、`npx jest`（834）通過；RN 範例 App iOS 模擬器實測商品頁三情境（預設關閉時不暫停；打開 `autoPipOnIntercept` 時被暫停、返回後恢復；觀眾先自己暫停時返回不恢復）
+> 通過（`759a0d6ad`）；登入頁與客服頁返回未實測（呼叫同一函式）。**Android 模擬器與真機實測未做。**
 
 ### Added
 
