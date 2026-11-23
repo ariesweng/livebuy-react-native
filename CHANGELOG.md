@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.14.1] - 2026-11-23
+
+> **core，patch，無 BREAKING、公開 API 與 wire shape 不變。** 原生依賴維持 iOS `~> 4.32`／Android `4.32.0`（只改 iOS bridge 原生碼）。
+> 同步發 `livebuy-react-native-ui` `1.18.0`（peer 升為 `^2.14.1`）。
+> **驗證範圍**：`npm run typecheck`、`npx jest`（822）通過；iOS bridge 改動的三個 struct 以本機 `LivebuySDK` 模組 `swiftc -typecheck`
+> 通過，經獨立驗收。**bridge 整檔原生編譯、模擬器與真機實測未做。**
+
+### Fixed
+
+- **iOS：直播中只有庫存數字改變時，JS 收不到商品更新**（`rn-ios-bridge-product-fingerprint-full-core`）：iOS bridge 的 channel-info
+  去重原本只比對部分商品欄位（不含庫存、規格庫存、價格、圖片等），只改這些欄位的刷新被當成沒變、不送 `onChannelChange`。現改為比對
+  所有送給 JS 的商品／規格欄位，與 Android 一致；內容相同仍不重送。
+
 ## [2.14.0] - 2026-11-22
 
 > **core，minor，源碼面無 BREAKING（只加不減）。** 原生依賴維持 iOS `~> 4.32`／Android `4.32.0`（只改 bridge 原生碼）。

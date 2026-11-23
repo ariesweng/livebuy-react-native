@@ -1446,10 +1446,10 @@ private struct ChannelInfoSnapshot: Equatable {
 }
 
 /// A comparison-relevant projection of `LBProduct` (rn-moment-products-bridge-core) — `LBProduct`
-/// itself is not `Equatable`, so `ChannelInfoSnapshot`'s dedupe compares products via this curated
-/// fingerprint instead of the full 20+ field set. Mirrors `ChannelInfoSnapshot`'s own existing
-/// pattern: a deliberately curated projection of a richer source type, not the whole thing. Fields
-/// chosen: `id` (identity) + exactly the ones `reference-ui-rendering`'s "RN LiveOverlayChrome"
+/// itself is not `Equatable`, so `ChannelInfoSnapshot`'s dedupe compares products via this
+/// fingerprint. (History: it started as a curated projection — see the
+/// rn-ios-bridge-product-fingerprint-full-core note below for the current full coverage.) Fields
+/// originally chosen: `id` (identity) + exactly the ones `reference-ui-rendering`'s "RN LiveOverlayChrome"
 /// Requirement documents as actually consumed by the pinned-card / product-list UI (`name` /
 /// `priceShow` / tag derived from `narrateStatus` / `isHot` / `isOutSoon`), plus `soldOut` (drives
 /// the sold-out price-column label).
@@ -1459,41 +1459,99 @@ private struct ChannelInfoSnapshot: Equatable {
 /// count (本人已下標 → 「正在等待結果...」) or a limit, at product OR spec level, must still
 /// re-emit `products` to JS. Android needs no equivalent — its `ChannelInfoSnapshot` compares
 /// the `LBProduct` data class structurally, which already covers every field incl. specs.
+///
+/// rn-ios-bridge-product-fingerprint-full-core: the fingerprint now covers EVERY field
+/// `lbProductToBody` / `lbSpecToBody` forward to JS (parity with Android's full data-class
+/// compare). Before, a poll that only changed `stock` (or a spec's stock, price, photos …)
+/// was deduped away and JS kept the stale value. Keep this list in step with the two
+/// serializers.
 private struct ProductFingerprint: Equatable {
     let id: String
+    let goodsNo: String
+    let goodsGpn: String
     let name: String
+    let price: Double
     let priceShow: String
+    let originalPrice: Double?
+    let originalPriceShow: String
+    let stock: Int
+    let pic: String
+    let photos: [String]
+    let brief: String
+    let description: String
     let narrateStatus: Int
     let isHot: Int
     let isOutSoon: Int
     let soldOut: Int
+    let canView: Bool
+    let canBuy: Bool
+    let isNarrating: Bool
+    let needLabel: Bool
+    let label: String
+    let isAwait: Int
+    let isAwaitNotice: Int
+    let diversionUrl: String
+    let beginTime: Int?
+    let endTime: Int?
+    let videoId: String?
     let saleKeyword: String
     let buyingNum: Int
     let totalBuyingNum: Int
     let limitNum: Int
     let specs: [SpecFingerprint]
+    let specOptions: [SpecOptionFingerprint]
 
     init(_ product: LBProduct) {
         id = product.id
+        goodsNo = product.goodsNo
+        goodsGpn = product.goodsGpn
         name = product.name
+        price = product.price
         priceShow = product.priceShow
+        originalPrice = product.originalPrice
+        originalPriceShow = product.originalPriceShow
+        stock = product.stock
+        pic = product.pic
+        photos = product.photos
+        brief = product.brief
+        description = product.description
         narrateStatus = product.narrateStatus
         isHot = product.isHot
         isOutSoon = product.isOutSoon
         soldOut = product.soldOut
+        canView = product.canView
+        canBuy = product.canBuy
+        isNarrating = product.isNarrating
+        needLabel = product.needLabel
+        label = product.label
+        isAwait = product.isAwait
+        isAwaitNotice = product.isAwaitNotice
+        diversionUrl = product.diversionUrl
+        beginTime = product.beginTime
+        endTime = product.endTime
+        videoId = product.videoId
         saleKeyword = product.saleKeyword
         buyingNum = product.buyingNum
         totalBuyingNum = product.totalBuyingNum
         limitNum = product.limitNum
         specs = product.specifications.map(SpecFingerprint.init)
+        specOptions = product.specOptions.map(SpecOptionFingerprint.init)
     }
 }
 
 /// Spec-level part of `ProductFingerprint` (flash-sale-goods-fields-rn-core) — `LBSpec` is not
-/// `Equatable` either. Only the bid-related fields plus `id` (identity); other spec fields keep
-/// the pre-existing "not part of the dedupe key" behavior.
+/// `Equatable` either. Covers every field `lbSpecToBody` forwards
+/// (rn-ios-bridge-product-fingerprint-full-core).
 private struct SpecFingerprint: Equatable {
     let id: String
+    let name: String
+    let specificationNo: String
+    let price: Double
+    let priceShow: String
+    let originalPrice: Double?
+    let originalPriceShow: String
+    let stock: Int
+    let photos: [String]
     let saleKeyword: String
     let buyingNum: Int
     let totalBuyingNum: Int
@@ -1501,10 +1559,29 @@ private struct SpecFingerprint: Equatable {
 
     init(_ spec: LBSpec) {
         id = spec.id
+        name = spec.name
+        specificationNo = spec.specificationNo
+        price = spec.price
+        priceShow = spec.priceShow
+        originalPrice = spec.originalPrice
+        originalPriceShow = spec.originalPriceShow
+        stock = spec.stock
+        photos = spec.photos
         saleKeyword = spec.saleKeyword
         buyingNum = spec.buyingNum
         totalBuyingNum = spec.totalBuyingNum
         limitNum = spec.limitNum
+    }
+}
+
+/// `LBSpecOption` part of `ProductFingerprint` (rn-ios-bridge-product-fingerprint-full-core).
+private struct SpecOptionFingerprint: Equatable {
+    let name: String
+    let child: [String]
+
+    init(_ option: LBSpecOption) {
+        name = option.name
+        child = option.child
     }
 }
 
@@ -1513,7 +1590,8 @@ private struct SpecFingerprint: Equatable {
 /// `ProductFingerprint` above), so `ChannelInfoSnapshot`'s dedupe compares `next[]` via this
 /// curated fingerprint instead. Fields chosen are EXACTLY the subset `emitChannelChange` forwards
 /// (`id`/`cover`/`title`/`duration`/`shopName`) — `preview` is excluded, matching the wire
-/// projection (mirrors `ProductFingerprint`'s existing pattern of a curated, not full, copy).
+/// projection (a curated copy of what is forwarded — unlike `ProductFingerprint`, which now covers
+/// every forwarded product field).
 private struct NavItemFingerprint: Equatable {
     let id: String
     let cover: String
@@ -1542,10 +1620,10 @@ final class LivebuyPlayerRNView: UIView {
     private var lastChannelInfoSnapshot: ChannelInfoSnapshot?
     // rn-moment-products-bridge-core — the REAL (non-fingerprint) last-known products /
     // narratingProduct, tracked SEPARATELY from `lastChannelInfoSnapshot` (which only holds the
-    // lossy `ProductFingerprint` projection needed for `Equatable` dedup — `LBProduct` itself is
+    // `ProductFingerprint` projection needed for `Equatable` dedup — `LBProduct` itself is
     // not `Equatable`). `onChannelRefresh` (below) has no moment-state data of its own and needs
     // to re-emit the FULL, real product objects it last saw, not a reconstruction from the
-    // fingerprint's 7 fields (which would silently null out `pic`/`photos`/`price`/etc.). Updated
+    // fingerprint (a comparison key, not a serializable product). Updated
     // on every `onMomentStateChange` firing (regardless of whether the dedup snapshot changed —
     // this tracks ground truth; only EMISSION is gated by the dedup check). Reset alongside
     // `lastChannelInfoSnapshot`.
