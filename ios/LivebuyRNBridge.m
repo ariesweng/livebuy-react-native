@@ -61,6 +61,10 @@ RCT_EXTERN_METHOD(currentPowerProfile:(RCTPromiseResolveBlock)resolve
 // MARK: - Stat reporting bridge (sdk-stat-reporting, rn-stat-reporting-core)
 RCT_EXTERN_METHOD(clearStatContext)
 
+// MARK: - Resume after intercept (resume-after-intercept-rn-core)
+RCT_EXTERN_METHOD(resumeAfterIntercept:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(notifyCheckoutCompleted:(NSString *)orderId
                   sdkTrackCodes:(NSArray<NSString *> *)sdkTrackCodes
                   items:(nullable NSArray<NSDictionary *> *)items)

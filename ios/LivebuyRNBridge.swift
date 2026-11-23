@@ -172,6 +172,23 @@ final class LivebuyRNBridge: RCTEventEmitter {
         Livebuy.clearStatContext()
     }
 
+    // MARK: - Resume after intercept (resume-after-intercept-rn-core)
+
+    // Restore the player most recently sent into auto-PiP (or paused by its fallback) by an
+    // intercepted PRODUCT_CLICK / AUTH_REQUIRED / INFO_CUSTOMER_SERVICE. The RN bridge always
+    // reports those sync interceptors as handled (JS cannot answer synchronously), so a host that
+    // opts into `autoPipOnIntercept: true` calls this when it returns to the player. Runs on the
+    // main thread and resolves after the native call, so the promise settles once the action ran.
+    @objc func resumeAfterIntercept(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DispatchQueue.main.async {
+            Livebuy.resumeAfterIntercept()
+            resolve(nil)
+        }
+    }
+
     @objc func currentFbc(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock

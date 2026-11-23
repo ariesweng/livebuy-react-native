@@ -64,6 +64,8 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
     private val cartCallbackPool = ConcurrentHashMap<String, PoolEntry>()
     private val poolOrder = java.util.concurrent.ConcurrentLinkedDeque<String>()
     private val timeoutHandler = Handler(Looper.getMainLooper())
+    // Main-thread hop for methods that must run on the UI thread (resume-after-intercept-rn-core).
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val bridgeScope = CoroutineScope(Dispatchers.IO)
 
     private data class PoolEntry(
@@ -414,6 +416,21 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
     @ReactMethod
     fun clearStatContext() {
         LivebuySDK.clearStatContext()
+    }
+
+    // MARK: - Resume after intercept (resume-after-intercept-rn-core)
+
+    // Restore the player most recently sent into auto-PiP (or paused by its fallback) by an
+    // intercepted PRODUCT_CLICK / AUTH_REQUIRED / INFO_CUSTOMER_SERVICE. The RN bridge always
+    // reports those sync interceptors as handled (JS cannot answer synchronously), so a host that
+    // opts into `autoPipOnIntercept: true` calls this when it returns to the player. Posted to the
+    // main thread and resolved after the native call, so the promise settles once the action ran.
+    @ReactMethod
+    fun resumeAfterIntercept(promise: Promise) {
+        mainHandler.post {
+            LivebuySDK.resumeAfterIntercept()
+            promise.resolve(null)
+        }
     }
 
     @ReactMethod

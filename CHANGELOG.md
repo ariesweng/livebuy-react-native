@@ -11,6 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.15.0] - 2026-11-23
+
+> **core，minor，無 BREAKING 公開符號（只新增 `resumeAfterIntercept`）、但含預設行為改變（見下方 ⚠️）。** 原生依賴升為
+> iOS `~> 4.33`／Android `4.33.0`（`resume-after-intercept-rn-core`；見 `docs/release-notes/v4.33.0.md`）。
+> 同步發 `livebuy-react-native-ui` `1.18.1`（純 metadata，peer 對齊）；`livebuy-react-native-reference-ui` 維持 `1.19.1`（peer `^1.17.0` 已涵蓋 `1.18.1`）。
+>
+> ⚠️ **升級提醒（預設值改變）**：`configure` 的 `autoPipOnIntercept` 預設由 `true` 改為 `false`。**沒帶這個選項、想要攔截時自動進子母
+> 畫面的宿主，升級後行為會改變**——攔截時播放器不再進子母畫面、也不再暫停。遷移方式：明確傳
+> `configure({ ..., autoPipOnIntercept: true })`，並在回到播放器時呼叫 `LivebuySDK.resumeAfterIntercept()`。明確傳 `true` 的宿主
+> 行為不變，但同樣應補呼叫 `resumeAfterIntercept()`，否則播放器會停在子母畫面或暫停。
+>
+> ⚠️ core `2.15.0` 需要原生 iOS／Android **`4.33.0`**——以 CocoaPods 消費的 host，Podfile 的 `LivebuySDK` `:podspec =>` URL 必須指向
+> `v4.33.0`（或更新）的 release，否則 `pod install` 會因不滿足 `~> 4.33` 而失敗。
+>
+> **驗證範圍**：`npm run typecheck`、`npx jest`（834）通過；RN 範例 App iOS 模擬器實測三情境（商品頁、登入完成與取消、客服）
+> 通過（`759a0d6ad`）。**Android 模擬器與真機實測未做。**
+
+### Added
+
+- **`LivebuySDK.resumeAfterIntercept(): Promise<void>`**（`resume-after-intercept-rn-core`）：攔截商品點擊、登入、客服等導覽事件後，
+  讓播放器回到原狀——在子母畫面中就回到全螢幕；因進不了子母畫面而被暫停的就恢復播放；觀眾自己暫停的不動。轉給原生
+  `Livebuy.resumeAfterIntercept()`／`LivebuySDK.resumeAfterIntercept()`，在主執行緒執行後才 resolve。只有開啟 `autoPipOnIntercept`
+  的宿主需要呼叫（在回到播放器時）。
+
+### Changed
+
+- **`autoPipOnIntercept` 預設改為 `false`**（原本 `true`）。RN bridge 對商品點擊等攔截事件一律回報「已攔截」（JS 無法同步回覆），
+  沿用原生預設 `true` 會讓每點一次商品播放器就進子母畫面，進不了時被暫停且回不來。沒帶這個選項的宿主，攔截時播放器不再進子母畫面、
+  也不再暫停。要保留舊行為請明確傳 `autoPipOnIntercept: true`，並在回到播放器時呼叫 `resumeAfterIntercept()`。原生 iOS／Android 的預設不變。
+- 原生依賴：iOS podspec `LivebuySDK ~> 4.32` → `~> 4.33`；Android `tv.livebuy:livebuy:4.32.0` → `4.33.0`（`resumeAfterIntercept()` 只存在於 4.33.0 起）。
+
 ## [2.14.1] - 2026-11-23
 
 > **core，patch，無 BREAKING、公開 API 與 wire shape 不變。** 原生依賴維持 iOS `~> 4.32`／Android `4.32.0`（只改 iOS bridge 原生碼）。

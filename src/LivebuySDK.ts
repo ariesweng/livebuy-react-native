@@ -38,7 +38,18 @@ export interface LBConfigOptions {
   apiVersion?: number;
   lang?: LBLocaleCode;
   user?: Partial<LBUser>;
-  /** Auto-enter PiP when a navigation interceptor event is taken over by the listener. Default true. */
+  /**
+   * Auto-enter Picture-in-Picture when a navigation interceptor event (`PRODUCT_CLICK` /
+   * `AUTH_REQUIRED` / `INFO_CUSTOMER_SERVICE`) is taken over by the listener; when PiP is not
+   * possible the native player pauses instead. **Default `false` on React Native**
+   * (resume-after-intercept-rn-core) — the native iOS / Android default is `true`, but the RN
+   * bridge always reports those events as taken over (JS cannot answer synchronously), so with
+   * `true` every intercepted tap would PiP or pause the player.
+   *
+   * If you pass `true`, you MUST call {@link LivebuySDK.resumeAfterIntercept} when the viewer
+   * returns to the player (e.g. when your product / login / customer-service screen closes), or
+   * the player stays in PiP / paused.
+   */
   autoPipOnIntercept?: boolean;
   /**
    * Max wait for `/sdk/config` on the no-cache blocking path AND the
@@ -1758,7 +1769,9 @@ const LivebuySDK = {
       // configure-time external member-id binding (rn-configure-external-user-id-parity): RN
       // previously dropped this typed field; mirrors setUser() + Flutter configure.
       options.user?.externalUserId ?? null,
-      options.autoPipOnIntercept ?? true,
+      // resume-after-intercept-rn-core: RN default is false (native default is true) — the bridge
+      // reports every sync interceptor as handled, so `true` would PiP / pause on every tap.
+      options.autoPipOnIntercept ?? false,
       options.apiVersion ?? 1,
       options.configFetchTimeoutMs ?? 5000,
       options.enableConversionAttribution ?? false,
@@ -1882,6 +1895,23 @@ const LivebuySDK = {
    */
   refreshConfig(): Promise<void> {
     return LivebuyRNBridge.refreshConfig();
+  },
+
+  /**
+   * Restore the player after an intercepted navigation event (`resume-after-intercept-rn-core`).
+   * Forwards to the native global entry (iOS `Livebuy.resumeAfterIntercept()` / Android
+   * `LivebuySDK.resumeAfterIntercept()`), which acts on the player most recently sent into
+   * auto-PiP (or paused by the PiP fallback) by an intercepted `PRODUCT_CLICK` /
+   * `AUTH_REQUIRED` / `INFO_CUSTOMER_SERVICE`:
+   * - in PiP → leaves PiP (back to full screen);
+   * - paused by the fallback while it was playing → resumes playback;
+   * - otherwise (no record, player released, or the viewer paused it) → does nothing.
+   *
+   * Only needed when `configure({ autoPipOnIntercept: true })`; call it when the viewer returns
+   * to the player. Runs on the native main thread; the promise resolves after the native call.
+   */
+  resumeAfterIntercept(): Promise<void> {
+    return LivebuyRNBridge.resumeAfterIntercept();
   },
 
   setUser(user: LBUser): void {
