@@ -336,12 +336,18 @@ internal class LivebuyRNModule(private val reactContext: ReactApplicationContext
     // itself — only the UI template does, and only when the host has not intercepted
     // `productTap`. Empty / malformed URLs are a safe no-op (never crash).
     //
+    // Only http / https URLs with a host are opened (rn-open-in-app-browser-scheme-guard-core,
+    // see InAppBrowserUrlPolicy): Custom Tabs carries no package, so any other scheme would
+    // become an implicit ACTION_VIEW that another app could handle. Rejected URLs are a
+    // silent no-op, the same as blank ones — the method returns void, so there is nothing
+    // to reject.
+    //
     // Requires `androidx.browser:browser:1.8.0` on the host app's Android classpath.
     // This RN package ships source-only (no module build.gradle), so the host /
     // build machine declares the dependency — see react-native/README.md §Installation.
     @ReactMethod
     fun openInAppBrowser(url: String) {
-        if (url.isBlank()) return
+        if (!InAppBrowserUrlPolicy.isInAppBrowsableUrl(url)) return
         val activity = reactContext.currentActivity ?: return
         try {
             CustomTabsIntent.Builder().build().launchUrl(activity, Uri.parse(url))

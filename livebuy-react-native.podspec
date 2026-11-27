@@ -73,8 +73,12 @@ Pod::Spec.new do |s|
   #   • local dev only (Livebuy-internal monorepo checkout):
   #       pod "LivebuySDK", :podspec => "<repo>/livebuy-ios-sdk/LivebuySDK.podspec"
   #
-  # Without either, `pod install` stops with "unable to find a specification
-  # for LivebuySDK" — the correct, expected plan-B behaviour (same as SwiftPM with
-  # no `.package(url:)`), telling the integrator to add the core pod source.
+  # Without either, CocoaPods falls back to its default trunk source and resolves
+  # whatever pod is published there under the name `LivebuySDK`. Livebuy does not
+  # currently own that name on trunk, so a missing `:podspec` line is NOT a safe
+  # failure: if someone else registers `LivebuySDK` on trunk, `pod install` would
+  # install their pod. The host Podfile MUST therefore declare the core source
+  # explicitly — the `:podspec` line above (or a Livebuy spec repo listed first in
+  # the Podfile's `source` lines).
   # ───────────────────────────────────────────────────────────────────────────
 end

@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > read from this package's own `package.json` `version` field at release time; the channel itself
 > is version-agnostic.
 
+## [2.16.0] - 2026-11-27
+
+> **core，minor，無 BREAKING、公開 API 簽章與 wire shape 不變，但有升級後行為差異（見下方 ⚠️）。** 原生依賴：Android `4.33.1` → `4.34.0`；
+> iOS podspec 維持 `~> 4.33`（已涵蓋 `4.34.0`；建議 Podfile 的 `:podspec =>` URL 指向 `v4.34.0`）。見 `docs/release-notes/v4.34.0.md`。
+> 同步發 `livebuy-react-native-ui` `1.19.0` 與 `livebuy-react-native-reference-ui` `1.20.0`（資安稽核 run-1 同輪修正）。
+>
+> **驗證範圍**：`npm run typecheck`、`npx jest` 通過（來源 change 皆經獨立驗收）。**Android／iOS 模擬器與真機實測未做。**
+
+### Security
+
+- `openInAppBrowser(url)` 在 JS 與 iOS／Android bridge 三處都只開「有 host 的 `http`／`https`」網址，其他協定（`intent:`、`market:`、自訂 scheme、
+  `mailto:`／`tel:`／`sms:` 等）一律不做事、不閃退（`rn-open-in-app-browser-scheme-guard-core`）。以前 iOS 遇到非 web 網址會讓 App 閃退，
+  Android 會跳去別的 App。
+
+### Changed
+
+- 原生依賴：Android `tv.livebuy:livebuy:4.33.1` → `4.34.0`（`rn-android-pin-4-34-0-core`）。Android `4.34.0` 帶入資安稽核 run-1 的 core 修正：
+  `AUTH_STATE_CHANGED` 補送 `external_user_id`（與 iOS 一致）、`clearUser()` 改為輪換 `guest_id` 並清除訪客暱稱、商城購物車已同步的得標
+  自動確認、`fbclid` 驗證、GET 歸因參數編碼。iOS 端的同一批修正隨 iOS `4.34.0` 提供（`~> 4.33` 已涵蓋，更新 Podfile 的 podspec URL 即可）。
+- `confirmBidWin` JSDoc 與 `BID_WON` 說明補上「商城購物車已同步（`shop_cart_synced=true`）的得標由原生 core 自動確認、host 再呼叫無妨；
+  168+EC 仍須 host 呼叫」（`confirm-bid-win-doc-auto-call-core`，只改說明）。
+- README／podspec 註解：三套件須逐一宣告 git 依賴、Podfile 的 `LivebuySDK` 必須寫 `:podspec =>`，避免 npm／CocoaPods 退回公開 registry
+  解析到同名的他人套件（`registry-name-dependency-guidance-core`）。
+
+### ⚠️ 升級後行為差異
+
+- 曾用 `openInAppBrowser` 打開自訂 scheme deep link 的 host：這條路不再有效，改用 RN `Linking.openURL`。
+- `clearUser()` 之後訪客識別碼會換新（iOS／Android 原生 `4.34.0` 起；Android 隨本版升 pin 生效，iOS 依 Podfile 解析到的版本）。
+
 ## [2.15.1] - 2026-11-24
 
 > **core，patch，無 BREAKING、公開 API 與 wire shape 不變。** 原生依賴：Android `4.33.0` → `4.33.1`；iOS podspec 維持 `~> 4.33`

@@ -425,10 +425,25 @@ final class LivebuyRNBridge: RCTEventEmitter {
     @objc func openInAppBrowser(_ url: String) {
         // URL(string:) returns nil for empty / malformed input — safe no-op (spec rn-inapp-browser).
         guard let parsed = URL(string: url) else { return }
+        // SFSafariViewController raises NSInvalidArgumentException (not catchable from
+        // Swift → host crash) for any scheme other than http / https, so non-web or host-less
+        // URLs are a safe no-op too (rn-open-in-app-browser-scheme-guard-core).
+        guard LivebuyRNBridge.isInAppBrowsableURL(parsed) else { return }
         DispatchQueue.main.async {
             guard let presenter = LivebuyRNBridge.topMostViewController() else { return }
             presenter.present(SFSafariViewController(url: parsed), animated: true)
         }
+    }
+
+    /// True only for http / https URLs (scheme case-insensitive) with a non-empty host — the
+    /// URLs `SFSafariViewController` accepts. Same rule as the Android bridge's
+    /// `InAppBrowserUrlPolicy` and the JS wrapper's `isInAppBrowsableUrl`.
+    static func isInAppBrowsableURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        guard let host = url.host, !host.isEmpty else { return false }
+        return true
     }
 
     /// Walks from the key window's root VC down the presentation chain to the VC that

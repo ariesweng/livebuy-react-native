@@ -18,10 +18,14 @@
 // ⚠️ 這兩層在 RN 是**獨立的頂層套件目錄**（`react-native-ui/` 與 `react-native-reference-ui/`，
 // **不在** `react-native/` 底下）——只在本套件目錄內 grep 消費者會得到「無消費者」的假陰性。
 //
-// ⚠️ **reference-ui 層仍有不經本策略的既有 outbound 出口**——例如
-// `react-native-reference-ui/src/widget/ExternalLive.ts` 的外部直播平台卡，直接
-// `Linking.openURL(url)`，不呼叫 `decide()`。那是**待收斂的債、不是已定案的例外**，屬
-// reference-ui 層另案。因此 **MUST NOT** 從上一段推得「所有開啟都已由本策略裁決」。
+// ⚠️ reference-ui 層**曾有**不經本策略的既有 outbound 出口——
+// `react-native-reference-ui/src/widget/ExternalLive.ts` 的外部直播平台卡當時直接
+// `Linking.openURL(url)`，drop-in 預設 `onServiceLink` 當時只檢查長度就 `openInAppBrowser`。
+// 兩者已由 `rb-url-exit-policy-gate`（reference-ui 層）收斂：外部直播判定先經 `decide()`、另限
+// http(s)，開啟值用 `decision.url`；serviceLink 預設改由 `container/seams.ts` 的
+// `lbOpenServiceLink` 依 `decide()` 三分流。
+// 即便如此仍 **MUST NOT** 從上一段推得「所有開啟都已由本策略裁決」：本策略只裁決、不攔截，
+// 繞過單一出口的新消費點不會被它擋下，只能靠 review。
 //
 // ⚠️ 「消費端已接線」那一段刻意寫成「**層 + 單一出口**」而非消費者清單或數量：走既有出口的
 // 新消費點不會使它過期，而繞過出口的消費點本來就該在 review 被擋下。**MUST NOT** 改寫成

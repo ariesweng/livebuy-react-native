@@ -13,8 +13,9 @@ NativeModules + `LivebuyPlayerView` native view). Renders no UI.
 > [`livebuy-react-native-ui`](https://github.com/ariesweng/livebuy-react-native-ui) (view-model
 > layer) and [`livebuy-react-native-reference-ui`](https://github.com/ariesweng/livebuy-react-native-reference-ui)
 > (reference-ui pixel layer, `LivebuyPlayer` / `LivebuyWidget`). Unlike a single Android Maven
-> coordinate or an iOS SwiftPM product, npm installs are **not transitive** — declare all three
-> packages you need, one dependency line each.
+> coordinate or an iOS SwiftPM product, npm does **not** fetch the other Livebuy packages from
+> this git channel for you — declare every package you need, one dependency line each (see
+> Installation).
 
 ---
 
@@ -32,6 +33,15 @@ npm's standard `git` dependency syntax — point at this repo and a release tag:
 
 Then `npm install` (or `yarn` / `pnpm install`). No registry account or `.npmrc` token needed —
 this is a plain public git dependency.
+
+> **Declare every package you need.** If you also use the UI packages, declare them here too:
+> `livebuy-react-native-ui` and `livebuy-react-native-reference-ui` declare their Livebuy peers
+> with ordinary registry version ranges, and npm 7+ installs missing peers automatically — from
+> registry.npmjs.org, where Livebuy does not publish these packages. If `livebuy-react-native`
+> itself is missing from your `dependencies`, npm resolves it from the registry instead of this
+> repo. Only the packages you declare yourself are installed from this git channel — **so declare
+> each Livebuy package you use as its own `git+https://…` dependency line** (do not rely on
+> `legacy-peer-deps` to silence the peer).
 
 > **Why a git dependency and not npm registry?** The SDK is not (yet) published to the public npm
 > registry; this mirror repository is the supported remote consumption channel. The tag you pin

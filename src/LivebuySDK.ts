@@ -8,6 +8,7 @@ import {
 } from './pendingRetryRegistry';
 import { getSdkEventEmitter } from './LivebuyEvents';
 import { createLanguageCache, type LBLanguageListener } from './languageCache';
+import { isInAppBrowsableUrl } from './LBInAppBrowserURL';
 
 const { LivebuyRNBridge } = NativeModules;
 
@@ -2137,12 +2138,15 @@ const LivebuySDK = {
    * tool for the Default UI template (`livebuy-react-native-ui`) to handle
    * `diversion == 1` products when the host has not intercepted `productTap`.
    *
-   * Headless contract: the SDK core never calls this itself. Empty / blank
-   * URLs are a safe no-op here; the native side additionally no-ops on
-   * malformed (non-empty) URLs. Per `rn-inapp-browser` capability.
+   * Headless contract: the SDK core never calls this itself. Only `http` /
+   * `https` URLs with a host are forwarded to the native bridge; empty /
+   * blank / malformed URLs and every other scheme (`mailto:` / `tel:` /
+   * `intent:` / custom app schemes, …) are a safe no-op here, and the native
+   * side applies the same check again. Per `rn-inapp-browser` capability
+   * (`rn-open-in-app-browser-scheme-guard-core`).
    */
   openInAppBrowser(url: string): void {
-    if (!url || url.trim() === '') return;
+    if (!isInAppBrowsableUrl(url)) return;
     LivebuyRNBridge.openInAppBrowser(url);
   },
 
@@ -2269,7 +2273,9 @@ const LivebuySDK = {
   /**
    * 得標確認（live-bid-rn-core，parity iOS `Livebuy.confirmBidWin` / Android `LivebuySDK.confirmBidWin`）。
    * 觀眾看過「恭喜搶購成功」並按下確認後由 host 呼叫（必須在收到 `BID_WON` 之後）；委派原生 core 打
-   * `POST /sdk/video/bidconfirm`，只把紀錄標成已讀。SDK 不會自動呼叫，也不派任何事件。
+   * `POST /sdk/video/bidconfirm`，只把紀錄標成已讀。此方法不派任何事件。`shop_cart_synced === true`
+   * （168money／直播管家）的得標，原生 core 取單成功後已自動確認（bid-won-auto-confirm-synced-core），
+   * host 再呼叫也無妨（後端對已確認紀錄回成功）；`shop_cart_synced === false`（168+EC）仍須由 host 呼叫。
    *
    * `buyingIds` 可放數字或字串（`BID_WON.buying_id` 是字串）：先經 {@link normalizeBuyingIds} 略過無法
    * 轉成整數的值（對齊原生 String overload）；全部略過時**不呼叫原生、直接 resolve `[]`**。

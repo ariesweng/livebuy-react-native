@@ -112,7 +112,14 @@ dependencies {
     // cuts a new published version; bump it the same way when that happens, don't
     // assume the literal version above stays current.
     //
-    // Current pin: 4.33.1 (rn-android-pin-4-33-1-core) — bumped from 4.33.0. A behavior bump, not a symbol gap: android-v4.33.1
+    // Current pin: 4.34.0 (rn-android-pin-4-34-0-core) — bumped from 4.33.1. A behavior bump, not a symbol gap: android-v4.34.0
+    // carries the security-audit run-1 core fixes the RN Android path relies on — `AUTH_STATE_CHANGED` now carries
+    // `external_user_id` (auth-state-external-user-id-android-core; `livebuy-react-native-ui`'s viewer-state reset needs it to
+    // tell a re-login of the same member from a member switch), `clearUser()` rotates `guest_id`, synced-cart bid wins are
+    // auto-confirmed, `fbclid` is validated and GET attribution params are encoded. The bridge references no symbol new in
+    // 4.34.0, so it compiles against 4.33.x too.
+    //
+    // Previous pin: 4.33.1 (rn-android-pin-4-33-1-core) — bumped from 4.33.0. A behavior bump, not a symbol gap: android-v4.33.1
     // fixes `togglePlayPause()` to follow playback intent (`playWhenReady`) instead of `playerState`, so the first tap on the
     // play button after a pause (host `pause()`, auto-PiP fallback pause, Activity lifecycle pause, intro) plays instead of
     // pausing again (android-toggle-play-pause-intent-core, commit 9c915422b). Zero public-symbol change; compiles against
@@ -185,7 +192,7 @@ dependencies {
     // Prior pin history: 4.19.0 (routine) → 4.21.2 (ad-hoc bump, commit a71b45e05,
     // docs(rn-flutter-release-prep), 2026-09-21) → 4.22.0 (rn-android-bridge-core-
     // pin-4-22-0, fixed `liveDurationSeconds` + intro-engine seek/pause routing) →
-    // 4.23.0 → 4.24.0 → 4.26.0 → 4.26.1 → 4.28.0 → 4.29.0 → 4.30.0 → 4.32.0 → 4.33.0 → 4.33.1 (current).
+    // 4.23.0 → 4.24.0 → 4.26.0 → 4.26.1 → 4.28.0 → 4.29.0 → 4.30.0 → 4.32.0 → 4.33.0 → 4.33.1 → 4.34.0 (current).
     //
     // ⚠️ THIS PIN WILL GO STALE AGAIN — read before bumping it (or trusting it).
     // Always re-check bridge Kotlin source against the target version's CHANGELOG for
@@ -193,7 +200,7 @@ dependencies {
     // Before the NEXT `livebuy-react-native` release (real `--yes` publish, not
     // `--dry-run`), re-verify this pin against the real remote AAR the same way this
     // fix did — do not trust mavenLocal-from-HEAD compile success as proof.
-    implementation "tv.livebuy:livebuy:4.33.1"
+    implementation "tv.livebuy:livebuy:4.34.0"
 
     // The bridge uses kotlinx.coroutines directly (CoroutineScope / Dispatchers /
     // MainScope / launch). The core SDK pulls it transitively but as `implementation`,

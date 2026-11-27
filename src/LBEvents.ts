@@ -91,7 +91,7 @@ export const LBEvents = {
   WIN_RECEIVED: "WIN_RECEIVED",
   /** 搶購場下標（placeBid，或聊天室打「關鍵字＋數量」由 SDK 自動下標）送出請求後派發的下標結果通知。status 為 placed（成功，帶 buying_id）或 failed（失敗，後端有回時帶 backend_error_code；超過限購另帶 limit_num、buying_num）。訪客被擋下（改派 AUTH_REQUIRED）、同一商品規格的下標仍在進行中時不派。 */
   BID_PLACE_RESULT: "BID_PLACE_RESULT",
-  /** 搶購得標後 SDK 自動取單（SDK 內部處理）有結果時派發的得標通知，供 host 顯示「恭喜搶購成功」，觀眾確認後 host 呼叫 confirmBidWin。status 為 ordered（取單成功，帶 shop_cart_synced，有單號時帶 buy_no；同一筆會先派 cart_origin=bid_won 的 CART_ADD_REQUEST）或 failed（帶 backend_error_code，不派 CART_ADD_REQUEST）。同一 buying_id 每支影片只派一次。 */
+  /** 搶購得標後 SDK 自動取單（SDK 內部處理）有結果時派發的得標通知，供 host 顯示「恭喜搶購成功」，觀眾確認後 host 呼叫 confirmBidWin（shop_cart_synced=true 的得標 SDK 取單後已自動確認，host 再呼叫無妨；168+EC 仍須 host 呼叫）。status 為 ordered（取單成功，帶 shop_cart_synced，有單號時帶 buy_no；同一筆會先派 cart_origin=bid_won 的 CART_ADD_REQUEST）或 failed（帶 backend_error_code，不派 CART_ADD_REQUEST）。同一 buying_id 每支影片只派一次。 */
   BID_WON: "BID_WON",
   /** 用戶點擊『查看購物車』CTA（商品列表底部 / 商品詳情頁）後 SDK 派發的通知型事件（背景派發、不可攔截、無 cartCallback）。template 不擁有任何購物車/結帳頁（D4），host 收到後自行收起/縮小播放器並導航至自家購物車頁。params 含 video_id（必）與 product_id（選填，詳情頁 CTA 才有，列表底部 CTA 省略 key）。 */
   VIEW_CART: "VIEW_CART",
